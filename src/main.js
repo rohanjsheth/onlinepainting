@@ -61,7 +61,7 @@ const works = [
     source: 'https://commons.wikimedia.org/wiki/File:Cordelia_Wilson_-_Taos_Mountain_Trail_Home.jpg',
   },
 ];
-let workIndex = 0, showingUpload = false, currentWork;
+let workIndex = 0, currentWork;
 // Neighbouring works, downloaded and decoded ahead of time.
 const preloaded = new Map();
 const whenIdle = window.requestIdleCallback ? window.requestIdleCallback.bind(window) : (run) => setTimeout(run, 400);
@@ -74,7 +74,6 @@ let colorTexture, surfaceTexture, xrayTexture;
 const noXray = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
 noXray.needsUpdate = true;
 let loadVersion = 0, activeWorker;
-let currentObjectUrl;
 
 function status(message, error = false) {
   $('#status').textContent = message;
@@ -166,8 +165,8 @@ function updateUI() {
   $('#surface-only').textContent = state.surfaceOnly ? 'On' : 'Off';
   $('#compare').setAttribute('aria-pressed', String(state.original));
   $('#compare-label').textContent = state.original ? 'Return to textured view' : 'Compare original';
-  $('#previous-work').disabled = !ready || (!showingUpload && workIndex === 0);
-  $('#next-work').disabled = !ready || (!showingUpload && workIndex === works.length - 1);
+  $('#previous-work').disabled = !ready || workIndex === 0;
+  $('#next-work').disabled = !ready || workIndex === works.length - 1;
   stage.classList.toggle('tilt-mode', state.mode === 'tilt');
   stage.classList.toggle('pan-mode', state.zoom > 1);
   $('#xray-control').hidden = !xrayTexture;
@@ -346,17 +345,15 @@ function preloadNeighbours(index) {
   }
 }
 
-async function loadPainting(work, uploaded = false) {
+async function loadPainting(work) {
   const url = work.src;
   const version = ++loadVersion;
   $('#loading').hidden = false;
-  $('#upload-button').disabled = true;
   $('#previous-work').disabled = true;
   $('#next-work').disabled = true;
   status('');
   // The wall label is the receipt for the click, so it changes before the pixels arrive.
-  // An upload keeps its old label until the file proves loadable.
-  if (!uploaded) showLabel(work);
+  showLabel(work);
   stage.classList.add('loading-work');
   requestRender();
   let nextColor;
@@ -415,24 +412,20 @@ async function loadPainting(work, uploaded = false) {
     document.querySelectorAll('.controls button, .controls input, #compare').forEach((control) => { control.disabled = false; });
     stage.dataset.ready = 'true';
     $('#fallback-image').src = url;
-    showingUpload = uploaded;
     currentWork = work;
-    if (uploaded) showLabel(work);
     stage.classList.remove('loading-work');
-    if (!uploaded) whenIdle(() => preloadNeighbours(workIndex));
-    if (uploaded) status('Your image is ready. Adjust the relief and canvas weave to suit the painting.');
+    whenIdle(() => preloadNeighbours(workIndex));
     updateUI();
   } catch (error) {
     nextColor?.dispose();
     // Put the label back on whatever is still hanging, rather than leaving it describing a painting that never arrived.
-    if (!uploaded && currentWork) showLabel(currentWork);
+    if (currentWork) showLabel(currentWork);
     status(error.message || 'The image could not be loaded. Try a JPEG, PNG, or WebP image.', true);
     if (!ready) showFallback('The textured viewer could not load. You can still view the original painting.');
   } finally {
     if (version === loadVersion) {
       stage.classList.remove('loading-work');
       $('#loading').hidden = true;
-      $('#upload-button').disabled = false;
     }
   }
 }
@@ -441,7 +434,7 @@ function showFallback(message) {
   $('#fallback-image').hidden = false;
   canvas.hidden = true;
   $('#loading').hidden = true;
-  document.querySelectorAll('.controls button, .controls input, #compare, .works button, #upload-button').forEach((control) => { control.disabled = true; });
+  document.querySelectorAll('.controls button, .controls input, #compare, .works button').forEach((control) => { control.disabled = true; });
   status(message, true);
 }
 
@@ -457,12 +450,12 @@ $('#surface-only').addEventListener('click', () => { state.surfaceOnly = !state.
 $('#compare').addEventListener('click', () => { state.original = !state.original; updateUI(); });
 function showWork(index) {
   const next = THREE.MathUtils.clamp(index, 0, works.length - 1);
-  if (!ready || (next === workIndex && !showingUpload)) return;
+  if (!ready || next === workIndex) return;
   workIndex = next;
   loadPainting(works[next]);
 }
-$('#previous-work').addEventListener('click', () => showWork(showingUpload ? workIndex : workIndex - 1));
-$('#next-work').addEventListener('click', () => showWork(showingUpload ? workIndex : workIndex + 1));
+$('#previous-work').addEventListener('click', () => showWork(workIndex - 1));
+$('#next-work').addEventListener('click', () => showWork(workIndex + 1));
 $('#reset').addEventListener('click', () => {
   Object.assign(state, defaults);
   lightTarget.set(-.75, .55); tiltTarget.set(0, 0); pan.set(0, 0);
@@ -546,22 +539,6 @@ stage.addEventListener('keydown', (event) => {
   const target = state.mode === 'tilt' ? tiltTarget : lightTarget;
   if (delta) { event.preventDefault(); target.add(new THREE.Vector2(...delta)).clampLength(0, 1); requestRender(); }
   if (event.key === 'Home') { event.preventDefault(); pan.set(0, 0); target.copy(state.mode === 'tilt' ? new THREE.Vector2() : new THREE.Vector2(-.75, .55)); requestRender(); }
-});
-
-$('#upload-button').addEventListener('click', () => $('#upload').click());
-$('#upload').addEventListener('change', async (event) => {
-  const file = event.target.files[0];
-  event.target.value = '';
-  if (!file) return;
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return status('Please choose a JPEG, PNG, or WebP image.', true);
-  if (file.size > 40 * 1024 * 1024) return status('Please choose an image smaller than 40 MB.', true);
-  const url = URL.createObjectURL(file);
-  const previousUrl = currentObjectUrl;
-  await loadPainting({ src: url, title: file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '), artist: 'Artist unknown' }, true);
-  if ($('#fallback-image').getAttribute('src') === url) {
-    currentObjectUrl = url;
-    if (previousUrl) URL.revokeObjectURL(previousUrl);
-  } else URL.revokeObjectURL(url);
 });
 
 try {

@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. To build a static site, run `npm run build`; the output is in `dist/`. `npm run preview` serves that build locally. The artwork and fonts are bundled locally; the running gallery makes no external requests and uploads no images.
+Open http://127.0.0.1:5173. To build a static site, run `npm run build`; the output is in `dist/`. `npm run preview` serves that build locally. The artwork and fonts are bundled locally; the running gallery makes no external requests.
 
 ## Explore
 
@@ -21,7 +21,6 @@ The default view contains the painting and an unboxed museum label, set in Libre
 - **Show surface only:** inspect the material with neutral color.
 - **Compare original:** toggle the source photograph without synthesized relief or lighting. The current viewing angle and zoom are retained.
 - **Look closer:** zoom up to 2× to inspect the central brushwork.
-- **Open an image:** experiment with a local JPEG, PNG, or WebP (up to 40 MB). Invalid uploads retain the current artwork.
 - **Keyboard:** focus the painting and use arrow keys for the active interaction; Home returns it to center/default. All controls are keyboard accessible.
 
 On a touchscreen, touch and move over the painting. Head-tilt mode captures gestures on the artwork; the rest of the page still scrolls. Reduced-motion preferences remove movement easing. Browsers without WebGL show the original image with a clear message.
@@ -50,7 +49,7 @@ Textures and geometry are disposed when replacing an image. The renderer draws o
 npm test
 ```
 
-Browser tests cover relighting, the 4.5-degree tilt bound, original-image comparison, uploads and failure recovery, phone layout and touch interaction, and WebGL fallback. The default executable is Google Chrome on macOS; set `CHROME_PATH` to another Chromium executable as needed. Playwright starts or reuses the local Vite server. Screenshots are written to `test-results/`.
+Browser tests cover relighting, the 4.5-degree tilt bound, original-image comparison, phone layout and touch interaction, and WebGL fallback. The default executable is Google Chrome on macOS; set `CHROME_PATH` to another Chromium executable as needed. Playwright starts or reuses the local Vite server. Screenshots are written to `test-results/`.
 
 ## Sources
 
