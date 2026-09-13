@@ -7,7 +7,7 @@ const stage = $('#stage');
 const canvas = $('#gallery-canvas');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const MAX_TILT = THREE.MathUtils.degToRad(4.5);
-const defaults = { weave: .30, relief: .50, roughness: .58, elevation: 30, mode: 'tilt', surfaceOnly: false, original: false, zoom: 1 };
+const defaults = { weave: .30, relief: .50, roughness: .58, elevation: 30, xray: 1, mode: 'tilt', surfaceOnly: false, original: false, zoom: 1 };
 const state = { ...defaults };
 const lightTarget = new THREE.Vector2(-.75, .55);
 const tiltTarget = new THREE.Vector2();
@@ -19,6 +19,7 @@ const sliders = [
   ['paint-relief', 'relief', 100, '%'],
   ['roughness', 'roughness', 100, '%'],
   ['light-angle', 'elevation', 1, '°'],
+  ['xray-relief', 'xray', 100, '%'],
 ];
 const works = [
   {
@@ -27,6 +28,7 @@ const works = [
     title: 'Wheat Field with Cypresses', year: '1889',
     place: 'Painted in Saint-Rémy-de-Provence, France', medium: 'Oil on canvas',
     collection: 'The Metropolitan Museum of Art, New York', room: 'The Met Fifth Avenue, Gallery 822',
+    xray: '/art/wheat-field-xray.jpg',
     source: 'https://www.metmuseum.org/art/collection/search/436535',
   },
   {
@@ -67,7 +69,10 @@ const whenIdle = window.requestIdleCallback ? window.requestIdleCallback.bind(wi
 let renderer, scene, camera, painting, artworkGroup, material;
 let frameRequest = 0, previousTime = 0, ready = false;
 let aspect = 1200 / 955, cameraDistance = 4;
-let colorTexture, surfaceTexture;
+let colorTexture, surfaceTexture, xrayTexture;
+// Stands in for the plate when a work has no radiograph: fully "leaded", so the gain is a no-op.
+const noXray = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+noXray.needsUpdate = true;
 let loadVersion = 0, activeWorker;
 let currentObjectUrl;
 
@@ -165,6 +170,7 @@ function updateUI() {
   $('#next-work').disabled = !ready || (!showingUpload && workIndex === works.length - 1);
   stage.classList.toggle('tilt-mode', state.mode === 'tilt');
   stage.classList.toggle('pan-mode', state.zoom > 1);
+  $('#xray-control').hidden = !xrayTexture;
   stage.setAttribute('aria-label', `Interactive painting. ${state.mode === 'light' ? 'Move the pointer to move the light.' : 'Move the pointer to tilt your viewpoint, limited to 4.5 degrees.'} Arrow keys also control this interaction. Press Home to center.`);
   requestRender();
 }
@@ -198,6 +204,7 @@ function render(time) {
     material.uniforms.uWeave.value = state.weave;
     material.uniforms.uRelief.value = state.relief;
     material.uniforms.uRoughness.value = state.roughness;
+    material.uniforms.uXrayGain.value = xrayTexture ? state.xray : 0;
     material.uniforms.uSurfaceOnly.value = state.surfaceOnly;
     material.uniforms.uOriginal.value = state.original;
   }
@@ -281,6 +288,7 @@ function mountPainting() {
       uTexel: { value: new THREE.Vector2(1 / surfaceTexture.image.width, 1 / surfaceTexture.image.height) },
       uSize: { value: new THREE.Vector2(width, height) },
       uLight: { value: new THREE.Vector3(-.6, .5, .6) },
+      uXray: { value: xrayTexture || noXray }, uXrayGain: { value: xrayTexture ? state.xray : 0 },
       uWeave: { value: state.weave }, uRelief: { value: state.relief },
       uRoughness: { value: state.roughness }, uSurfaceOnly: { value: false }, uOriginal: { value: false },
     },
@@ -361,6 +369,23 @@ async function loadPainting(work, uploaded = false) {
     if (imageAspect < .2 || imageAspect > 5) throw new Error('Please choose a painting with an aspect ratio between 1:5 and 5:1.');
     const surface = await prepareSurface(image);
     if (version !== loadVersion) return;
+    // The radiograph is resampled to the surface map so the two line up texel for texel.
+    let nextXray;
+    if (work.xray) {
+      try {
+        const plate = new Image();
+        plate.src = work.xray;
+        await plate.decode();
+        const sheet = document.createElement('canvas');
+        sheet.width = surface.width; sheet.height = surface.height;
+        sheet.getContext('2d').drawImage(plate, 0, 0, sheet.width, sheet.height);
+        nextXray = new THREE.CanvasTexture(sheet);
+        nextXray.colorSpace = THREE.NoColorSpace;
+      } catch {
+        status('The radiograph could not be read; showing the inferred relief alone.');
+      }
+    }
+    if (version !== loadVersion) { nextXray?.dispose(); return; }
     const maxColorSize = Math.min(4096, renderer.capabilities.maxTextureSize);
     const source = document.createElement('canvas');
     const scale = Math.min(1, maxColorSize / Math.max(image.naturalWidth, image.naturalHeight));
@@ -378,12 +403,12 @@ async function loadPainting(work, uploaded = false) {
     nextSurface.generateMipmaps = true;
     nextSurface.anisotropy = nextColor.anisotropy;
     nextSurface.needsUpdate = true;
-    const oldColor = colorTexture, oldSurface = surfaceTexture;
-    colorTexture = nextColor; surfaceTexture = nextSurface;
+    const oldColor = colorTexture, oldSurface = surfaceTexture, oldXray = xrayTexture;
+    colorTexture = nextColor; surfaceTexture = nextSurface; xrayTexture = nextXray;
     aspect = imageAspect;
     state.zoom = 1; state.original = false; pan.set(0, 0);
     mountPainting();
-    oldColor?.dispose(); oldSurface?.dispose();
+    oldColor?.dispose(); oldSurface?.dispose(); oldXray?.dispose();
     ready = true;
     canvas.hidden = false;
     $('#fallback-image').hidden = true;
@@ -561,7 +586,7 @@ Object.defineProperty(window, '__gallery', { get: () => ({
   ready, ...state,
   tiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltCurrent.length() * Math.tan(MAX_TILT))),
   targetTiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltTarget.length() * Math.tan(MAX_TILT))),
-  pan: [pan.x, pan.y], canPan: renderer ? canPan() : false,
+  pan: [pan.x, pan.y], canPan: renderer ? canPan() : false, hasXray: Boolean(xrayTexture),
   preloaded: [...preloaded.keys()],
   textureSize: surfaceTexture ? [surfaceTexture.image.width, surfaceTexture.image.height] : null,
 }) });

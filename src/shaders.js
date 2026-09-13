@@ -18,6 +18,8 @@ export const vertexShader = /* glsl */ `
 export const fragmentShader = /* glsl */ `
   uniform sampler2D uColor;
   uniform sampler2D uSurface;
+  uniform sampler2D uXray;
+  uniform float uXrayGain;
   uniform vec2 uTexel;
   uniform vec2 uSize;
   uniform vec3 uLight;
@@ -42,7 +44,12 @@ export const fragmentShader = /* glsl */ `
     // Relief height is in painting-space units. The same height scale drives
     // parallax, normals, and light occlusion so those cues agree as the view moves.
     float edge = smoothstep(0.0, .018, min(min(vUv.x, vUv.y), min(1.0 - vUv.x, 1.0 - vUv.y)));
-    float reliefDepth = .014 * uRelief * edge * texture2D(uSurface, vUv).a;
+    // An X-radiograph reads lead white, which is what van Gogh's thickest passages are made of.
+    // Where the plate is dark the paint is thin or lead-free, so the inferred relief is pulled back
+    // rather than erased: thick lead-free pigment is still paint, it just cannot be measured this way.
+    float lead = texture2D(uXray, vUv).r;
+    float material = mix(1.0, mix(.35, 1.0, lead), uXrayGain);
+    float reliefDepth = .014 * uRelief * edge * texture2D(uSurface, vUv).a * material;
     vec2 uv = vUv;
     if (!uOriginal && reliefDepth > .00001) {
       vec2 offset = tangentView.xy / max(tangentView.z, .5) * reliefDepth / uSize;
