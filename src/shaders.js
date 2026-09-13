@@ -64,9 +64,12 @@ export const fragmentShader = /* glsl */ `
       uv = mix(uv, previousUv, blend);
     }
     uv = clamp(uv, uTexel * .5, vec2(1.0) - uTexel * .5);
-    vec3 color = linearColor(texture2D(uColor, uv).rgb);
+    vec4 source = texture2D(uColor, uv);
+    // The photograph's backdrop is transparent, so the canvas keeps its torn edge.
+    if (source.a < .004) discard;
+    vec3 color = linearColor(source.rgb);
     if (uOriginal) {
-      gl_FragColor = vec4(color, 1.0);
+      gl_FragColor = vec4(color, source.a);
       #include <colorspace_fragment>
       return;
     }
@@ -125,7 +128,7 @@ export const fragmentShader = /* glsl */ `
     // flattening the whole image's exposure as the light elevation changes.
     float diffuse = (.55 + .80 * NoL * visibility) / (.55 + .80 * flatLight);
     vec3 lit = color * diffuse + vec3(1.0, .97, .90) * specular * NoL * visibility * .85 * surface.a;
-    gl_FragColor = vec4(lit, 1.0);
+    gl_FragColor = vec4(lit, source.a);
     #include <colorspace_fragment>
   }
 `;

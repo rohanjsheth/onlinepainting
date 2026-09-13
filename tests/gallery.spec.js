@@ -79,7 +79,7 @@ test('processes uploaded images locally and retains the painting after an invali
   await page.locator('#upload').setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('not an image') });
   await expect(page.locator('#status')).toHaveClass(/error/);
   await expect(page.locator('#artwork-title')).toHaveText('Wheat Field with Cypresses');
-  await page.locator('#upload').setInputFiles('public/art/wheat-field.jpg');
+  await page.locator('#upload').setInputFiles('public/art/wheat-field.webp');
   await expect(page.locator('#artwork-title')).toHaveText('wheat field', { timeout: 45000 });
   await expect(page.locator('#artwork-source')).toBeHidden();
   await expect(page.locator('#status')).toContainText('Your image is ready');

@@ -22,7 +22,7 @@ const sliders = [
 ];
 const works = [
   {
-    src: '/art/wheat-field.jpg',
+    src: '/art/wheat-field.webp',
     artist: 'Vincent van Gogh', life: 'Dutch, 1853–1890',
     title: 'Wheat Field with Cypresses', year: '1889',
     place: 'Painted in Saint-Rémy-de-Provence, France', medium: 'Oil on canvas',
@@ -214,15 +214,15 @@ function createShadow(width, height) {
   const image = document.createElement('canvas');
   image.width = 512; image.height = 512;
   const context = image.getContext('2d');
-  context.filter = 'blur(17px)';
-  context.fillStyle = 'rgba(40, 43, 28, 0.24)';
-  context.fillRect(57, 69, 398, 382);
-  context.filter = 'blur(4px)';
-  context.fillStyle = 'rgba(40, 43, 28, 0.13)';
-  context.fillRect(58, 65, 396, 382);
+  context.filter = 'blur(5px)';
+  context.fillStyle = 'rgba(40, 43, 28, 0.12)';
+  context.fillRect(28, 32, 457, 449);
+  context.filter = 'blur(2px)';
+  context.fillStyle = 'rgba(40, 43, 28, 0.08)';
+  context.fillRect(29, 32, 455, 449);
   const texture = new THREE.CanvasTexture(image);
-  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(width * 1.28, height * 1.34), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }));
-  shadow.position.set(0, -.025, -.035);
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(width * 1.12, height * 1.14), new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }));
+  shadow.position.set(0, -.008, -.025);
   return shadow;
 }
 
@@ -252,6 +252,7 @@ function mountPainting() {
       uWeave: { value: state.weave }, uRelief: { value: state.relief },
       uRoughness: { value: state.roughness }, uSurfaceOnly: { value: false }, uOriginal: { value: false },
     },
+    transparent: true,
   });
   painting = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
   artworkGroup.add(painting);
@@ -308,7 +309,6 @@ async function loadPainting(work, uploaded = false) {
     const scale = Math.min(1, maxColorSize / Math.max(image.naturalWidth, image.naturalHeight));
     source.width = Math.round(image.naturalWidth * scale); source.height = Math.round(image.naturalHeight * scale);
     const context = source.getContext('2d');
-    context.fillStyle = '#f2f0e6'; context.fillRect(0, 0, source.width, source.height);
     context.drawImage(image, 0, 0, source.width, source.height);
     // Shader explicitly converts source sRGB to linear to keep comparison faithful.
     nextColor = new THREE.CanvasTexture(source);
