@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f6f2" />
+    <meta name="description" content="Wheat Field with Cypresses by Vincent van Gogh. An interactive study of paint and light." />
+    <title>Wheat Field with Cypresses — Vincent van Gogh</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <main>
+      <figure class="artwork">
+        <div class="stage" id="stage" tabindex="0" role="group" aria-label="Interactive painting. Move the pointer to move the light. Arrow keys also control the light.">
+          <canvas id="gallery-canvas" aria-label="Wheat Field with Cypresses with simulated paint texture"></canvas>
+          <img id="fallback-image" src="/art/wheat-field.jpg" alt="Wheat Field with Cypresses by Vincent van Gogh" hidden />
+          <div class="loading" id="loading" role="status"><span id="loading-message">Preparing the painting…</span></div>
+        </div>
+
+        <figcaption class="artwork-label">
+          <p id="artwork-credit">Vincent van Gogh<br /><span>Dutch, 1853–1890</span></p>
+          <p><strong id="artwork-title">Wheat Field with Cypresses</strong><span id="artwork-year">, 1889</span><br /><span id="artwork-place">Painted in Saint-Rémy-de-Provence, France</span><br /><span id="artwork-medium">Oil on canvas</span></p>
+          <p id="artwork-exhibition"><a id="artwork-source" href="https://www.metmuseum.org/art/collection/search/436535" target="_blank" rel="noreferrer">The Metropolitan Museum of Art, New York</a><br /><span>The Met Fifth Avenue, Gallery 822</span></p>
+        </figcaption>
+      </figure>
+
+      <details class="viewing-options" id="viewing-options">
+        <summary>Viewing options</summary>
+        <div class="controls" aria-label="Viewing and surface controls">
+          <fieldset class="mode-control"><legend>Pointer movement</legend><div class="mode-buttons"><button type="button" data-mode="light" aria-pressed="true">Light</button><button type="button" data-mode="tilt" aria-pressed="false">Head tilt</button></div><p id="mode-note">Move the light; keep your view still.</p></fieldset>
+          <div class="slider-control"><label for="canvas-weave">Canvas weave <output for="canvas-weave" id="canvas-weave-value">30%</output></label><input id="canvas-weave" type="range" min="0" max="100" value="30" /></div>
+          <div class="slider-control"><label for="paint-relief">Paint relief <output for="paint-relief" id="paint-relief-value">45%</output></label><input id="paint-relief" type="range" min="0" max="100" value="45" /></div>
+          <div class="slider-control"><label for="roughness">Roughness <output for="roughness" id="roughness-value">55%</output></label><input id="roughness" type="range" min="15" max="95" value="55" /></div>
+          <div class="slider-control"><label for="light-angle">Light elevation <output for="light-angle" id="light-angle-value">35°</output></label><input id="light-angle" type="range" min="10" max="80" value="35" /></div>
+          <div class="view-options"><span>Surface only</span><button id="surface-only" role="switch" aria-checked="false" aria-label="Show surface only">Off</button></div>
+          <div class="view-options"><span>Zoom</span><div class="zoom-controls"><button id="zoom-out" aria-label="Zoom out">−</button><output id="zoom-value">1×</output><button id="zoom-in" aria-label="Zoom in">+</button></div></div>
+          <div class="option-actions"><button id="compare" aria-pressed="false"><span id="compare-label">Compare original</span></button><button id="reset">Reset</button><button id="upload-button">Open an image</button><input type="file" id="upload" accept="image/jpeg,image/png,image/webp" hidden /></div>
+          <p class="options-note">The relief is an artistic approximation. Images you open stay in your browser.</p>
+        </div>
+      </details>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
