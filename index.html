@@ -11,7 +11,7 @@
   <body class="expanded">
     <main>
       <figure class="artwork">
-        <div class="stage" id="stage" tabindex="0" role="group" aria-label="Interactive painting. Move the pointer to tilt your viewpoint, limited to three degrees. Arrow keys also control this interaction. Press Home to center. Press Enter to expand.">
+        <div class="stage" id="stage" tabindex="0" role="group" aria-label="Interactive painting. Move the pointer to tilt your viewpoint, limited to three degrees. Arrow keys also control this interaction. Press Home to center. Press Enter to look closer, Escape to step back.">
           <canvas id="gallery-canvas" aria-label="Wheat Field with Cypresses with simulated paint texture"></canvas>
           <img id="fallback-image" src="/art/wheat-field.webp" alt="Wheat Field with Cypresses by Vincent van Gogh" hidden />
           <div class="loading" id="loading"></div>
@@ -39,7 +39,6 @@
             <div class="slider-control"><label for="roughness">Roughness <output for="roughness" id="roughness-value">58%</output></label><input id="roughness" type="range" min="15" max="95" value="58" /></div>
             <div class="slider-control"><label for="light-angle">Light elevation <output for="light-angle" id="light-angle-value">30°</output></label><input id="light-angle" type="range" min="10" max="80" value="30" /></div>
             <div class="view-options"><span>Surface only</span><button id="surface-only" role="switch" aria-checked="false" aria-label="Show surface only">Off</button></div>
-            <div class="view-options"><span>Zoom</span><div class="zoom-controls" role="group" aria-label="Zoom"><button id="zoom-out" aria-label="Zoom out">−</button><output id="zoom-value">1×</output><button id="zoom-in" aria-label="Zoom in">+</button></div></div>
             <div class="option-actions"><button id="compare" aria-pressed="false"><span id="compare-label">Compare original</span></button><button id="reset">Reset</button><button id="upload-button">Open an image</button><input type="file" id="upload" accept="image/jpeg,image/png,image/webp" hidden /></div>
           </div>
         </details>

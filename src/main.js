@@ -59,7 +59,10 @@ const works = [
     source: 'https://commons.wikimedia.org/wiki/File:Cordelia_Wilson_-_Taos_Mountain_Trail_Home.jpg',
   },
 ];
-let workIndex = 0, showingUpload = false;
+let workIndex = 0, showingUpload = false, currentWork;
+// Neighbouring works, downloaded and decoded ahead of time.
+const preloaded = new Map();
+const whenIdle = window.requestIdleCallback ? window.requestIdleCallback.bind(window) : (run) => setTimeout(run, 400);
 
 let renderer, scene, camera, painting, artworkGroup, material;
 let frameRequest = 0, previousTime = 0, ready = false;
@@ -113,6 +116,31 @@ function showLabel(work) {
   $('#fallback-image').alt = work.artist ? `${work.title} by ${work.artist}` : work.title;
 }
 
+// Zoom to the point under the pointer, so a click lands on the brushwork you aimed at.
+function lookCloser(event) {
+  const view = viewHalfSize();
+  let target = new THREE.Vector2();
+  if (event) {
+    const rect = stage.getBoundingClientRect();
+    const ndcX = (event.clientX - rect.left) / rect.width * 2 - 1;
+    const ndcY = 1 - (event.clientY - rect.top) / rect.height * 2;
+    target.set(pan.x + ndcX * view.x, pan.y + ndcY * view.y);
+  }
+  state.zoom = 2;
+  pan.copy(target);
+  clampPan();
+  updateUI();
+}
+
+function stepBack() {
+  if (state.zoom > 1) {
+    state.zoom = 1;
+    clampPan();
+    return updateUI();
+  }
+  setExpanded(false);
+}
+
 function setExpanded(expanded) {
   document.body.classList.toggle('expanded', expanded);
   stage.dataset.expanded = String(expanded);
@@ -131,11 +159,8 @@ function updateUI() {
   $('#surface-only').textContent = state.surfaceOnly ? 'On' : 'Off';
   $('#compare').setAttribute('aria-pressed', String(state.original));
   $('#compare-label').textContent = state.original ? 'Return to textured view' : 'Compare original';
-  $('#zoom-value').value = `${state.zoom}×`;
   $('#previous-work').disabled = !ready || (!showingUpload && workIndex === 0);
   $('#next-work').disabled = !ready || (!showingUpload && workIndex === works.length - 1);
-  $('#zoom-out').disabled = state.zoom <= 1;
-  $('#zoom-in').disabled = state.zoom >= 2;
   stage.classList.toggle('tilt-mode', state.mode === 'tilt');
   stage.classList.toggle('pan-mode', state.zoom > 1);
   stage.setAttribute('aria-label', `Interactive painting. ${state.mode === 'light' ? 'Move the pointer to move the light.' : 'Move the pointer to tilt your viewpoint, limited to three degrees.'} Arrow keys also control this interaction. Press Home to center.`);
@@ -286,6 +311,26 @@ function prepareSurface(image) {
   });
 }
 
+// Speculative fetching costs the viewer real bytes, so sit it out on a metered or slow link.
+function mayPreload() {
+  const link = navigator.connection;
+  return !link || (!link.saveData && !/(^|-)2g$/.test(link.effectiveType || ''));
+}
+
+// Hold the neighbours either side of the current work, and let the rest go.
+function preloadNeighbours(index) {
+  if (!mayPreload()) return;
+  const wanted = [works[index - 1], works[index + 1]].filter(Boolean).map((work) => work.src);
+  for (const src of [...preloaded.keys()]) if (!wanted.includes(src)) preloaded.delete(src);
+  for (const src of wanted) {
+    if (preloaded.has(src)) continue;
+    const image = new Image();
+    preloaded.set(src, image);
+    image.src = src;
+    image.decode().catch(() => preloaded.delete(src));
+  }
+}
+
 async function loadPainting(work, uploaded = false) {
   const url = work.src;
   const version = ++loadVersion;
@@ -294,6 +339,11 @@ async function loadPainting(work, uploaded = false) {
   $('#previous-work').disabled = true;
   $('#next-work').disabled = true;
   status('');
+  // The wall label is the receipt for the click, so it changes before the pixels arrive.
+  // An upload keeps its old label until the file proves loadable.
+  if (!uploaded) showLabel(work);
+  stage.classList.add('loading-work');
+  requestRender();
   let nextColor;
   try {
     const image = new Image();
@@ -334,15 +384,21 @@ async function loadPainting(work, uploaded = false) {
     stage.dataset.ready = 'true';
     $('#fallback-image').src = url;
     showingUpload = uploaded;
-    showLabel(work);
+    currentWork = work;
+    if (uploaded) showLabel(work);
+    stage.classList.remove('loading-work');
+    if (!uploaded) whenIdle(() => preloadNeighbours(workIndex));
     if (uploaded) status('Your image is ready. Adjust the relief and canvas weave to suit the painting.');
     updateUI();
   } catch (error) {
     nextColor?.dispose();
+    // Put the label back on whatever is still hanging, rather than leaving it describing a painting that never arrived.
+    if (!uploaded && currentWork) showLabel(currentWork);
     status(error.message || 'The image could not be loaded. Try a JPEG, PNG, or WebP image.', true);
     if (!ready) showFallback('The textured viewer could not load. You can still view the original painting.');
   } finally {
     if (version === loadVersion) {
+      stage.classList.remove('loading-work');
       $('#loading').hidden = true;
       $('#upload-button').disabled = false;
     }
@@ -367,8 +423,6 @@ document.querySelectorAll('[data-mode]').forEach((button) => button.addEventList
 }));
 $('#surface-only').addEventListener('click', () => { state.surfaceOnly = !state.surfaceOnly; state.original = false; updateUI(); });
 $('#compare').addEventListener('click', () => { state.original = !state.original; updateUI(); });
-$('#zoom-in').addEventListener('click', () => { state.zoom = Math.min(2, state.zoom + .5); clampPan(); updateUI(); });
-$('#zoom-out').addEventListener('click', () => { state.zoom = Math.max(1, state.zoom - .5); clampPan(); updateUI(); });
 function showWork(index) {
   const next = THREE.MathUtils.clamp(index, 0, works.length - 1);
   if (!ready || (next === workIndex && !showingUpload)) return;
@@ -421,10 +475,12 @@ stage.addEventListener('click', (event) => {
   if (!ready || event.target.closest('button')) return;
   if (!pressOrigin || pressOrigin.pointerType === 'touch') return;
   if (Math.hypot(event.clientX - pressOrigin.x, event.clientY - pressOrigin.y) > 6) return;
-  setExpanded(!document.body.classList.contains('expanded'));
+  if (!document.body.classList.contains('expanded')) return setExpanded(true);
+  if (state.zoom > 1) return stepBack();
+  lookCloser(event);
 });
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') setExpanded(false);
+  if (event.key === 'Escape') stepBack();
 });
 stage.addEventListener('pointerdown', (event) => {
   if (event.target.closest('button')) return;
@@ -444,7 +500,8 @@ stage.addEventListener('keydown', (event) => {
   if (event.target !== stage || !ready) return;
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
-    return setExpanded(!document.body.classList.contains('expanded'));
+    if (!document.body.classList.contains('expanded')) return setExpanded(true);
+    return state.zoom > 1 ? stepBack() : lookCloser();
   }
   const delta = { ArrowLeft: [-.15, 0], ArrowRight: [.15, 0], ArrowUp: [0, .15], ArrowDown: [0, -.15] }[event.key];
   if (delta && canPan()) {
@@ -498,5 +555,6 @@ Object.defineProperty(window, '__gallery', { get: () => ({
   tiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltCurrent.length() * Math.tan(MAX_TILT))),
   targetTiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltTarget.length() * Math.tan(MAX_TILT))),
   pan: [pan.x, pan.y], canPan: renderer ? canPan() : false,
+  preloaded: [...preloaded.keys()],
   textureSize: surfaceTexture ? [surfaceTexture.image.width, surfaceTexture.image.height] : null,
 }) });

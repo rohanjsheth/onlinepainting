@@ -56,9 +56,17 @@ test('renders paint, relights it, limits head tilt, and preserves the original c
   await page.locator('#compare').click();
   await page.locator('#surface-only').click();
   await expect(page.locator('#surface-only')).toHaveAttribute('aria-checked', 'true');
-  await page.locator('#zoom-in').click();
-  await page.locator('#zoom-in').click();
-  await expect(page.locator('#zoom-in')).toBeDisabled();
+  Object.assign(area, await page.locator('#stage').boundingBox());
+  await page.mouse.click(area.x + area.width * .3, area.y + area.height * .35);
+  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(2);
+  expect(await page.evaluate(() => window.__gallery.pan.some(v => v !== 0))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__gallery.pan.map(v => v === 0 ? 0 : v))).toEqual([0, 0]);
+  await page.mouse.click(area.x + area.width * .3, area.y + area.height * .35);
+  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(2);
+  await page.mouse.click(area.x + area.width * .5, area.y + area.height * .5);
+  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(1);
   await page.locator('#canvas-weave').fill('0');
   const withoutWeave = await painting.screenshot();
   await page.locator('#canvas-weave').fill('100');
@@ -105,6 +113,18 @@ test('fits a phone screen and supports touch and accessible controls', async ({ 
   await page.locator('#viewing-options summary').tap();
   await page.screenshot({ path: 'test-results/gallery-mobile.png', fullPage: true });
   await context.close();
+});
+
+test('names the next work before its image arrives, and warms the neighbours', async ({ page }) => {
+  await loaded(page);
+  await expect.poll(() => page.evaluate(() => window.__gallery.preloaded)).toEqual(['/art/starry-night.jpg']);
+  await page.locator('#next-work').click();
+  // The label leads; the painting is still on its way.
+  await expect(page.locator('#artwork-title')).toHaveText('The Starry Night', { timeout: 5000 });
+  await expect(page.locator('#stage')).toHaveClass(/loading-work/);
+  await expect(page.locator('#stage')).not.toHaveClass(/loading-work/, { timeout: 45000 });
+  await expect.poll(() => page.evaluate(() => window.__gallery.preloaded), { timeout: 15000 })
+    .toEqual(['/art/wheat-field.webp', '/art/roses.jpg']);
 });
 
 test('shows the original image if WebGL is unavailable', async ({ page }) => {
