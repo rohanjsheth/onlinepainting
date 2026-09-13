@@ -114,6 +114,9 @@ test('names the next work before its image arrives, and warms the neighbours', a
   await expect(page.locator('#stage')).not.toHaveClass(/loading-work/, { timeout: 45000 });
   await expect.poll(() => page.evaluate(() => window.__gallery.preloaded), { timeout: 15000 })
     .toEqual(['/art/wheat-field.webp', '/art/roses.jpg']);
+  // Both neighbours are synthesised ahead of time, not merely downloaded.
+  await expect.poll(() => page.evaluate(() => [...window.__gallery.warmed].sort()), { timeout: 90000 })
+    .toEqual(['/art/roses.jpg', '/art/starry-night.jpg', '/art/wheat-field.webp']);
 });
 
 test('shows the original image if WebGL is unavailable', async ({ page }) => {

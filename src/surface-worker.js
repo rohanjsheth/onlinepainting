@@ -30,6 +30,21 @@ for (let v = 0; v < 256; v++) {
 }
 const labCurve = (t) => t > .008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
 
+// Stroke stamping evaluates these millions of times, so both are tabulated. The profile
+// argument is always in 0..1 and the wave argument wraps, which is what makes tables viable.
+const PROFILE_STEPS = 1024;
+const THIN_PROFILE = new Float32Array(PROFILE_STEPS);
+const WIDE_PROFILE = new Float32Array(PROFILE_STEPS);
+for (let i = 0; i < PROFILE_STEPS; i++) {
+  const t = i / PROFILE_STEPS;
+  THIN_PROFILE[i] = Math.pow(t, .7);
+  WIDE_PROFILE[i] = Math.pow(t, 1.3);
+}
+const WAVE_STEPS = 2048;
+const WAVE = new Float32Array(WAVE_STEPS);
+for (let i = 0; i < WAVE_STEPS; i++) WAVE[i] = Math.cos(i / WAVE_STEPS * Math.PI * 2);
+const WAVE_SCALE = WAVE_STEPS / (Math.PI * 2);
+
 function createSurface({ pixels, width, height }) {
   const rgba = new Uint8ClampedArray(pixels);
   const count = width * height;
@@ -129,10 +144,11 @@ function createSurface({ pixels, width, height }) {
         const i = y * width + x;
         const colorDistance = (Math.abs(rgba[i * 4] - color[0]) + Math.abs(rgba[i * 4 + 1] - color[1]) + Math.abs(rgba[i * 4 + 2] - color[2])) / 765;
         const continuity = Math.max(0, 1 - colorDistance * 5);
-        const bristles = .78 + .22 * Math.cos(across * 13 + phase + along * .8);
-        const stamp = Math.pow(1 - ellipse, .7) * amplitude * bristles * continuity;
+        const profile = (1 - ellipse) * PROFILE_STEPS | 0;
+        const bristles = .78 + .22 * WAVE[((across * 13 + phase + along * .8) * WAVE_SCALE + 16384) & (WAVE_STEPS - 1)];
+        const stamp = THIN_PROFILE[profile] * amplitude * bristles * continuity;
         deposits[i] = Math.max(deposits[i], stamp);
-        if (wide) bodies[i] = Math.max(bodies[i], Math.pow(1 - ellipse, 1.3) * amplitude * continuity);
+        if (wide) bodies[i] = Math.max(bodies[i], WIDE_PROFILE[profile] * amplitude * continuity);
       }
     }
   }
@@ -156,10 +172,14 @@ function createSurface({ pixels, width, height }) {
     // Stroke direction stored as a double angle, which survives bilinear filtering
     // across the ±pi seam that a raw angle would tear on.
     const energy = tx[i] + ty[i];
-    const spin = Math.sqrt((tx[i] - ty[i]) ** 2 + 4 * txy[i] ** 2);
-    const angle = .5 * Math.atan2(2 * txy[i], tx[i] - ty[i]) + Math.PI / 2;
-    orient[i * 4] = Math.round((Math.cos(2 * angle) * .5 + .5) * 255);
-    orient[i * 4 + 1] = Math.round((Math.sin(2 * angle) * .5 + .5) * 255);
+    const gx = tx[i] - ty[i], gy = 2 * txy[i];
+    const spin = Math.sqrt(gx * gx + gy * gy);
+    // The stroke angle is half of atan2(gy, gx) plus a quarter turn, so the doubled angle
+    // stored here is atan2(gy, gx) + pi — whose cosine and sine are just -gx/spin and
+    // -gy/spin. Taking the arctangent only to undo it with a cosine is wasted work.
+    const inverse = spin > 1e-12 ? 1 / spin : 0;
+    orient[i * 4] = Math.round((-gx * inverse * .5 + .5) * 255);
+    orient[i * 4 + 1] = Math.round((-gy * inverse * .5 + .5) * 255);
     orient[i * 4 + 2] = Math.round(Math.min(1, spin / (energy + .00001)) * 255);
     orient[i * 4 + 3] = Math.round(thick[i] * 255);
   }

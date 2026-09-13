@@ -29,7 +29,7 @@ On a touchscreen, touch and move over the painting. Head-tilt mode captures gest
 
 The surface is an artistic approximation, not measured geometry. A Web Worker builds a deterministic relief map up to 2048 pixels on its longest side:
 
-1. Band-pass luminance detail retains fine image variation while suppressing broad light/dark shapes.
+1. Thickness is read as local color deviation: the distance in CIELAB from a pixel to its blurred neighbourhood. A dark stroke laid over dark ground registers as much paint as a light one over light ground, which a luminance band-pass cannot do.
 2. A smoothed structure tensor estimates local stroke direction.
 3. Short bristle strokes and broader rounded deposits follow that direction. Color differences limit deposits crossing strong boundaries.
 4. A shader calculates surface normals from the height field and adds procedural weave, filtered according to screen resolution to reduce shimmer.
@@ -38,6 +38,55 @@ The surface is an artistic approximation, not measured geometry. A Web Worker bu
 The painting remains a planar mesh: shadows and depth are approximated in the shader, with no displaced silhouette. Near-black regions connected to the image border are treated as photographic backdrop and excluded from added texture. This heuristic can also exclude border-connected black paint.
 
 The default study uses 50% relief, 58% roughness, and light at 30° elevation. Smoothed stroke deposits and restrained fine detail keep the lighting from sharpening the source photograph. These remain adjustable under Viewing options. The renderer now samples more textures per pixel for depth and shadows; performance depends on the device.
+
+## Synthesis cost
+
+Surface synthesis runs once per painting, in a worker, and is most of the wait before the first frame. Two changes roughly halved it, from 2577 ms to 1364 ms on *Wheat Field with Cypresses* at 2048 × 1608 (3.3 million pixels).
+
+Both were chosen from a profile rather than by inspection. An earlier guess that the CIELAB conversion was the expensive part was wrong: its three cube roots per pixel look costly, but they account for under 4% of the work. The two stages that mattered were the two that run tens of millions of times.
+
+| stage | before | after |
+| --- | --- | --- |
+| stroke stamping | 1403 ms | 349 ms |
+| assemble + orientation | 563 ms | 383 ms |
+| thickness (3 blurs, ΔE, percentile) | 223 ms | 224 ms |
+| structure tensor (3 blurs) | 142 ms | 147 ms |
+| luminance pyramid (3 blurs) | 120 ms | 115 ms |
+| CIELAB conversion | 103 ms | 103 ms |
+| deposit blurs | 75 ms | 66 ms |
+| backdrop flood fill | 5 ms | 5 ms |
+
+### Stroke profiles and bristle grooves
+
+**Before.** Each stamped stroke evaluated, for every pixel it covered, `Math.pow(1 - ellipse, .7)` for its cross-sectional profile, a second `Math.pow(1 - ellipse, 1.3)` for the broad deposits, and `Math.cos` for the bristle grooves running along it. At roughly 47,000 strokes covering about 290 pixels each, that is near 13.6 million evaluations of two transcendental functions — over half the total synthesis time.
+
+**After.** The profile argument is always in 0…1, so both powers become a 1024-entry lookup table. The wave argument is unbounded but periodic, so the cosine becomes a 2048-entry table indexed by the argument wrapped with a bitwise mask, which avoids a modulo and a branch. The stage drops to 349 ms, a 4× improvement. The tables quantize the result: 1.44% of surface-map bytes change, all of them by exactly 1, which is below what the 8-bit output can represent anyway.
+
+### Orientation without an arctangent
+
+**Before.** The orientation field stored the stroke angle as a doubled angle, so that bilinear filtering would not tear where a raw angle wraps. It computed that by taking an arctangent and then undoing it:
+
+```js
+const angle = .5 * Math.atan2(2 * txy[i], tx[i] - ty[i]) + Math.PI / 2;
+orient[i * 4]     = Math.round((Math.cos(2 * angle) * .5 + .5) * 255);
+orient[i * 4 + 1] = Math.round((Math.sin(2 * angle) * .5 + .5) * 255);
+```
+
+An `atan2`, a `cos` and a `sin` on every one of 3.3 million pixels.
+
+**After.** The arctangent is unnecessary. Writing `gx = tx - ty` and `gy = 2·txy`, the stored angle is `atan2(gy, gx) + π`, whose cosine and sine are `-gx/r` and `-gy/r` for `r = √(gx² + gy²)`. That `r` was already being computed on the next line as the numerator of coherence, so the replacement costs nothing:
+
+```js
+const gx = tx[i] - ty[i], gy = 2 * txy[i];
+const spin = Math.sqrt(gx * gx + gy * gy);
+const inverse = spin > 1e-12 ? 1 / spin : 0;
+orient[i * 4]     = Math.round((-gx * inverse * .5 + .5) * 255);
+orient[i * 4 + 1] = Math.round((-gy * inverse * .5 + .5) * 255);
+```
+
+This is exact, not an approximation. Of 3.3 million pixels, 1512 differ by one count from floating-point rounding at a `Math.round` boundary, and 222 differ by more — every one of those has coherence exactly zero, meaning the gradient vanished and no direction existed to record. The shader scales anisotropy by coherence, so they contribute nothing.
+
+Blurs are already cheap for a related reason and were left alone: a box blur's samples all carry equal weight, so sliding the window one pixel is one subtraction and one addition regardless of radius. That makes each blur constant-time per pixel where a Gaussian would cost proportional to its radius. See `docs/how-it-works.md`.
 
 The source photograph contains baked lighting and cannot be treated as measured albedo. Exposure normalization preserves its color reasonably well while allowing local relief shading. Some inferred ridges can still follow pigment boundaries instead of physical paint. The neutral surface view makes those artifacts easier to evaluate. Thin paint, detailed photographs, and low-resolution source images may need less relief.
 

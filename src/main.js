@@ -63,8 +63,12 @@ const works = [
   },
 ];
 let workIndex = 0, currentWork;
-// Neighbouring works, downloaded and decoded ahead of time.
+// Neighbouring works, downloaded and decoded ahead of time, and their synthesised
+// relief. Both are keyed by source path; synthesis is deterministic, so a cached
+// result is always valid for its painting.
 const preloaded = new Map();
+const surfaceCache = new Map();
+let warmQueue = Promise.resolve();
 const whenIdle = window.requestIdleCallback ? window.requestIdleCallback.bind(window) : (run) => setTimeout(run, 400);
 
 let renderer, scene, camera, painting, artworkGroup, material;
@@ -302,7 +306,7 @@ function mountPainting() {
   resize();
 }
 
-function prepareSurface(image) {
+function prepareSurface(image, background = false) {
   const maxSize = Math.min(2048, renderer.capabilities.maxTextureSize);
   const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
   const width = Math.max(16, Math.round(image.naturalWidth * scale));
@@ -316,7 +320,7 @@ function prepareSurface(image) {
   const pixels = context.getImageData(0, 0, width, height).data.buffer;
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./surface-worker.js', import.meta.url), { type: 'module' });
-    activeWorker = worker;
+    if (!background) activeWorker = worker;
     const timeout = setTimeout(() => { worker.terminate(); reject(new Error('Surface preparation took too long. Try a smaller image.')); }, 45000);
     worker.onmessage = ({ data }) => {
       clearTimeout(timeout); worker.terminate();
@@ -334,17 +338,38 @@ function mayPreload() {
   return !link || (!link.saveData && !/(^|-)2g$/.test(link.effectiveType || ''));
 }
 
+// Run the whole relief synthesis for a neighbour, so arriving there costs nothing.
+// Failures are swallowed: a warm-up that does not finish simply means the real load
+// does the work itself, which is the behaviour we already had.
+async function warmSurface(work) {
+  const entry = preloaded.get(work.src);
+  if (!entry || surfaceCache.has(work.src) || !renderer) return;
+  try {
+    await entry.ready;
+    if (surfaceCache.has(work.src)) return;
+    surfaceCache.set(work.src, await prepareSurface(entry.image, true));
+  } catch {
+    surfaceCache.delete(work.src);
+  }
+}
+
 // Hold the neighbours either side of the current work, and let the rest go.
 function preloadNeighbours(index) {
   if (!mayPreload()) return;
-  const wanted = [works[index - 1], works[index + 1]].filter(Boolean).map((work) => work.src);
-  for (const src of [...preloaded.keys()]) if (!wanted.includes(src)) preloaded.delete(src);
-  for (const src of wanted) {
-    if (preloaded.has(src)) continue;
-    const image = new Image();
-    preloaded.set(src, image);
-    image.src = src;
-    image.decode().catch(() => preloaded.delete(src));
+  const neighbours = [works[index - 1], works[index + 1]].filter(Boolean);
+  const keepImages = neighbours.map((work) => work.src);
+  const keepSurfaces = [works[index], ...neighbours].filter(Boolean).map((work) => work.src);
+  for (const src of [...preloaded.keys()]) if (!keepImages.includes(src)) preloaded.delete(src);
+  for (const src of [...surfaceCache.keys()]) if (!keepSurfaces.includes(src)) surfaceCache.delete(src);
+  for (const work of neighbours) {
+    if (!preloaded.has(work.src)) {
+      const image = new Image();
+      image.src = work.src;
+      const ready = image.decode().catch(() => { preloaded.delete(work.src); throw new Error('decode failed'); });
+      preloaded.set(work.src, { image, ready });
+    }
+    // One at a time, so two workers never compete for the same cores.
+    warmQueue = warmQueue.then(() => warmSurface(work));
   }
 }
 
@@ -367,8 +392,10 @@ async function loadPainting(work) {
     if (image.naturalWidth < 32 || image.naturalHeight < 32) throw new Error('Please choose an image at least 32 pixels on each side.');
     const imageAspect = image.naturalWidth / image.naturalHeight;
     if (imageAspect < .2 || imageAspect > 5) throw new Error('Please choose a painting with an aspect ratio between 1:5 and 5:1.');
-    const surface = await prepareSurface(image);
+    const surface = surfaceCache.get(url) || await prepareSurface(image);
     if (version !== loadVersion) return;
+    // Keep what is on the wall, so stepping back to it is as cheap as stepping forward.
+    surfaceCache.set(url, surface);
     // The radiograph is resampled to the surface map so the two line up texel for texel.
     let nextXray;
     if (work.xray) {
@@ -572,6 +599,7 @@ Object.defineProperty(window, '__gallery', { get: () => ({
   tiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltCurrent.length() * Math.tan(MAX_TILT))),
   targetTiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltTarget.length() * Math.tan(MAX_TILT))),
   pan: [pan.x, pan.y], canPan: renderer ? canPan() : false, hasXray: Boolean(xrayTexture),
+  warmed: [...surfaceCache.keys()],
   preloaded: [...preloaded.keys()],
   textureSize: surfaceTexture ? [surfaceTexture.image.width, surfaceTexture.image.height] : null,
 }) });
