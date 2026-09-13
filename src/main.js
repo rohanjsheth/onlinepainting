@@ -157,7 +157,9 @@ function render(time) {
   if (tiltCurrent.distanceToSquared(tiltTarget) < .000001) tiltCurrent.copy(tiltTarget);
   if (camera) {
     const distance = cameraDistance / state.zoom;
-    camera.position.set(pan.x + tiltCurrent.x * Math.tan(MAX_TILT) * distance, pan.y + tiltCurrent.y * Math.tan(MAX_TILT) * distance, distance);
+    // Move the viewpoint opposite the pointer so the painting's apparent tilt
+    // follows the gesture. Keep panning in its existing screen-space direction.
+    camera.position.set(pan.x - tiltCurrent.x * Math.tan(MAX_TILT) * distance, pan.y - tiltCurrent.y * Math.tan(MAX_TILT) * distance, distance);
     camera.lookAt(pan.x, pan.y, 0);
   }
   if (material) {
