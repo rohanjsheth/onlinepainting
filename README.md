@@ -32,9 +32,13 @@ The surface is an artistic approximation, not measured geometry. A Web Worker bu
 
 1. Band-pass luminance detail retains fine image variation while suppressing broad light/dark shapes.
 2. A smoothed structure tensor estimates local stroke direction.
-3. Short, tapered brush deposits with bristle ridges follow that direction. Color differences limit deposits crossing strong boundaries.
+3. Short bristle strokes and broader rounded deposits follow that direction. Color differences limit deposits crossing strong boundaries.
 4. A shader calculates surface normals from the height field and adds procedural weave, filtered according to screen resolution to reduce shimmer.
-5. GGX specular lighting and small parallax shifts respond to the light and camera. The painting remains a planar mesh; the effect does not create full geometric self-shadowing or a displaced silhouette.
+5. A 20-step parallax ray march gives the relief depth under the fixed three-degree head tilt. Ten short light-ray samples add soft shadows inside paint grooves. Normals, parallax, and shadows share the same height scale. GGX highlights vary with paint thickness, giving raised deposits a satin finish.
+
+The painting remains a planar mesh: shadows and depth are approximated in the shader, with no displaced silhouette. Near-black regions connected to the image border are treated as photographic backdrop and excluded from added texture. This heuristic can also exclude border-connected black paint.
+
+The default study uses 50% relief, 58% roughness, and light at 30° elevation. Smoothed stroke deposits and restrained fine detail keep the lighting from sharpening the source photograph. These remain adjustable under Viewing options. The renderer now samples more textures per pixel for depth and shadows; performance depends on the device.
 
 The source photograph contains baked lighting and cannot be treated as measured albedo. Exposure normalization preserves its color reasonably well while allowing local relief shading. Some inferred ridges can still follow pigment boundaries instead of physical paint. The neutral surface view makes those artifacts easier to evaluate. Thin paint, detailed photographs, and low-resolution source images may need less relief.
 

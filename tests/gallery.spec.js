@@ -26,10 +26,11 @@ test('renders paint, relights it, limits head tilt, and preserves the original c
   await page.locator('#stage').scrollIntoViewIfNeeded();
   const area = await page.locator('#stage').boundingBox();
   const painting = page.locator('#gallery-canvas');
+  await page.locator('[data-mode="light"]').click();
   await page.mouse.move(area.x + area.width * .15, area.y + area.height * .25);
   await page.waitForTimeout(800);
   const leftLight = await painting.screenshot();
-  await page.mouse.move(area.x + area.width * .85, area.y + area.height * .75);
+  await page.mouse.move(area.x + area.width * .7, area.y + area.height * .6);
   await page.waitForTimeout(800);
   expect((await painting.screenshot()).equals(leftLight)).toBe(false);
   await page.locator('[data-mode="tilt"]').click();
