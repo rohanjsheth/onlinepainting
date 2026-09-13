@@ -6,7 +6,7 @@ const $ = (selector) => document.querySelector(selector);
 const stage = $('#stage');
 const canvas = $('#gallery-canvas');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-const MAX_TILT = THREE.MathUtils.degToRad(3);
+const MAX_TILT = THREE.MathUtils.degToRad(4.5);
 const defaults = { weave: .30, relief: .50, roughness: .58, elevation: 30, mode: 'tilt', surfaceOnly: false, original: false, zoom: 1 };
 const state = { ...defaults };
 const lightTarget = new THREE.Vector2(-.75, .55);
@@ -165,7 +165,7 @@ function updateUI() {
   $('#next-work').disabled = !ready || (!showingUpload && workIndex === works.length - 1);
   stage.classList.toggle('tilt-mode', state.mode === 'tilt');
   stage.classList.toggle('pan-mode', state.zoom > 1);
-  stage.setAttribute('aria-label', `Interactive painting. ${state.mode === 'light' ? 'Move the pointer to move the light.' : 'Move the pointer to tilt your viewpoint, limited to three degrees.'} Arrow keys also control this interaction. Press Home to center.`);
+  stage.setAttribute('aria-label', `Interactive painting. ${state.mode === 'light' ? 'Move the pointer to move the light.' : 'Move the pointer to tilt your viewpoint, limited to 4.5 degrees.'} Arrow keys also control this interaction. Press Home to center.`);
   requestRender();
 }
 

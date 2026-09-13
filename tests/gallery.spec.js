@@ -38,11 +38,11 @@ test('renders paint, relights it, limits head tilt, and preserves the original c
   const movedArea = await page.locator('#stage').boundingBox();
   Object.assign(area, movedArea);
   await page.mouse.move(area.x + area.width - 2, area.y + 2);
-  await expect.poll(() => page.evaluate(() => window.__gallery.tiltDegrees)).toBeGreaterThan(2.5);
-  expect(await page.evaluate(() => window.__gallery.tiltDegrees)).toBeLessThanOrEqual(3.0001);
+  await expect.poll(() => page.evaluate(() => window.__gallery.tiltDegrees)).toBeGreaterThan(4.0);
+  expect(await page.evaluate(() => window.__gallery.tiltDegrees)).toBeLessThanOrEqual(4.5001);
   await page.locator('#stage').focus();
   for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
-  expect(await page.evaluate(() => window.__gallery.targetTiltDegrees)).toBeLessThanOrEqual(3.0001);
+  expect(await page.evaluate(() => window.__gallery.targetTiltDegrees)).toBeLessThanOrEqual(4.5001);
   await page.locator('[data-mode="light"]').click();
   await page.locator('#compare').click();
   await page.locator('#stage').scrollIntoViewIfNeeded();
@@ -103,7 +103,7 @@ test('fits a phone screen and supports touch and accessible controls', async ({ 
   await page.locator('#stage').scrollIntoViewIfNeeded();
   const rect = await page.locator('#stage').boundingBox();
   await page.touchscreen.tap(rect.x + rect.width * .9, rect.y + rect.height * .2);
-  expect(await page.evaluate(() => window.__gallery.targetTiltDegrees)).toBeLessThanOrEqual(3.0001);
+  expect(await page.evaluate(() => window.__gallery.targetTiltDegrees)).toBeLessThanOrEqual(4.5001);
   await page.locator('#surface-only').tap();
   await expect(page.locator('#surface-only')).toHaveAttribute('aria-checked', 'true');
   await page.locator('#viewing-options summary').tap();

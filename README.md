@@ -16,7 +16,7 @@ Open http://127.0.0.1:5173. To build a static site, run `npm run build`; the out
 The default view contains the painting and an unboxed museum label, set in Libre Franklin with only the painting title in bold. Open the small **Viewing options** disclosure below the label to access the controls.
 
 - **Light:** move your pointer across the painting to change the light’s direction. The elevation slider moves it from grazing to frontal illumination.
-- **Head tilt:** pointer movement changes your viewpoint, with a three-degree maximum from center, including at the corners. Leaving the painting recenters the view. This is not an orbit control.
+- **Head tilt:** pointer movement changes your viewpoint, with a 4.5-degree maximum from center, including at the corners. Leaving the painting recenters the view. This is not an orbit control.
 - **Canvas weave, paint relief, roughness:** adjust the material independently. Weave is reduced under thicker simulated paint.
 - **Show surface only:** inspect the material with neutral color.
 - **Compare original:** toggle the source photograph without synthesized relief or lighting. The current viewing angle and zoom are retained.
@@ -34,7 +34,7 @@ The surface is an artistic approximation, not measured geometry. A Web Worker bu
 2. A smoothed structure tensor estimates local stroke direction.
 3. Short bristle strokes and broader rounded deposits follow that direction. Color differences limit deposits crossing strong boundaries.
 4. A shader calculates surface normals from the height field and adds procedural weave, filtered according to screen resolution to reduce shimmer.
-5. A 20-step parallax ray march gives the relief depth under the fixed three-degree head tilt. Ten short light-ray samples add soft shadows inside paint grooves. Normals, parallax, and shadows share the same height scale. GGX highlights vary with paint thickness, giving raised deposits a satin finish.
+5. A 20-step parallax ray march gives the relief depth under the fixed 4.5-degree head tilt. Ten short light-ray samples add soft shadows inside paint grooves. Normals, parallax, and shadows share the same height scale. GGX highlights vary with paint thickness, giving raised deposits a satin finish.
 
 The painting remains a planar mesh: shadows and depth are approximated in the shader, with no displaced silhouette. Near-black regions connected to the image border are treated as photographic backdrop and excluded from added texture. This heuristic can also exclude border-connected black paint.
 
@@ -50,7 +50,7 @@ Textures and geometry are disposed when replacing an image. The renderer draws o
 npm test
 ```
 
-Browser tests cover relighting, the three-degree tilt bound, original-image comparison, uploads and failure recovery, phone layout and touch interaction, and WebGL fallback. The default executable is Google Chrome on macOS; set `CHROME_PATH` to another Chromium executable as needed. Playwright starts or reuses the local Vite server. Screenshots are written to `test-results/`.
+Browser tests cover relighting, the 4.5-degree tilt bound, original-image comparison, uploads and failure recovery, phone layout and touch interaction, and WebGL fallback. The default executable is Google Chrome on macOS; set `CHROME_PATH` to another Chromium executable as needed. Playwright starts or reuses the local Vite server. Screenshots are written to `test-results/`.
 
 ## Sources
 
