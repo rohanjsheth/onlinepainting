@@ -7,7 +7,7 @@ const stage = $('#stage');
 const canvas = $('#gallery-canvas');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const MAX_TILT = THREE.MathUtils.degToRad(4.5);
-const defaults = { weave: .30, relief: .50, roughness: .58, elevation: 30, xray: 1, mode: 'tilt', surfaceOnly: false, original: false, zoom: 1 };
+const defaults = { weave: .30, relief: .50, roughness: .58, elevation: 30, xray: 1, aniso: .75, mode: 'tilt', surfaceOnly: false, original: false, zoom: 1 };
 const state = { ...defaults };
 const lightTarget = new THREE.Vector2(-.75, .55);
 const tiltTarget = new THREE.Vector2();
@@ -20,6 +20,7 @@ const sliders = [
   ['roughness', 'roughness', 100, '%'],
   ['light-angle', 'elevation', 1, '°'],
   ['xray-relief', 'xray', 100, '%'],
+  ['anisotropy', 'aniso', 100, '%'],
 ];
 const works = [
   {
@@ -69,7 +70,7 @@ const whenIdle = window.requestIdleCallback ? window.requestIdleCallback.bind(wi
 let renderer, scene, camera, painting, artworkGroup, material;
 let frameRequest = 0, previousTime = 0, ready = false;
 let aspect = 1200 / 955, cameraDistance = 4;
-let colorTexture, surfaceTexture, xrayTexture;
+let colorTexture, surfaceTexture, orientTexture, xrayTexture;
 // Stands in for the plate when a work has no radiograph: fully "leaded", so the gain is a no-op.
 const noXray = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
 noXray.needsUpdate = true;
@@ -204,6 +205,7 @@ function render(time) {
     material.uniforms.uRelief.value = state.relief;
     material.uniforms.uRoughness.value = state.roughness;
     material.uniforms.uXrayGain.value = xrayTexture ? state.xray : 0;
+    material.uniforms.uAniso.value = state.aniso;
     material.uniforms.uSurfaceOnly.value = state.surfaceOnly;
     material.uniforms.uOriginal.value = state.original;
   }
@@ -288,6 +290,7 @@ function mountPainting() {
       uSize: { value: new THREE.Vector2(width, height) },
       uLight: { value: new THREE.Vector3(-.6, .5, .6) },
       uXray: { value: xrayTexture || noXray }, uXrayGain: { value: xrayTexture ? state.xray : 0 },
+      uOrient: { value: orientTexture }, uAniso: { value: state.aniso },
       uWeave: { value: state.weave }, uRelief: { value: state.relief },
       uRoughness: { value: state.roughness }, uSurfaceOnly: { value: false }, uOriginal: { value: false },
     },
@@ -393,6 +396,11 @@ async function loadPainting(work) {
     nextColor = new THREE.CanvasTexture(source);
     nextColor.colorSpace = THREE.NoColorSpace;
     nextColor.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const nextOrient = new THREE.DataTexture(new Uint8Array(surface.orient), surface.width, surface.height, THREE.RGBAFormat);
+    nextOrient.flipY = true;
+    nextOrient.magFilter = THREE.LinearFilter;
+    nextOrient.minFilter = THREE.LinearFilter;
+    nextOrient.needsUpdate = true;
     const nextSurface = new THREE.DataTexture(new Uint8Array(surface.pixels), surface.width, surface.height, THREE.RGBAFormat);
     nextSurface.flipY = true;
     nextSurface.magFilter = THREE.LinearFilter;
@@ -400,12 +408,12 @@ async function loadPainting(work) {
     nextSurface.generateMipmaps = true;
     nextSurface.anisotropy = nextColor.anisotropy;
     nextSurface.needsUpdate = true;
-    const oldColor = colorTexture, oldSurface = surfaceTexture, oldXray = xrayTexture;
-    colorTexture = nextColor; surfaceTexture = nextSurface; xrayTexture = nextXray;
+    const oldColor = colorTexture, oldSurface = surfaceTexture, oldXray = xrayTexture, oldOrient = orientTexture;
+    colorTexture = nextColor; surfaceTexture = nextSurface; xrayTexture = nextXray; orientTexture = nextOrient;
     aspect = imageAspect;
     state.zoom = 1; state.original = false; pan.set(0, 0);
     mountPainting();
-    oldColor?.dispose(); oldSurface?.dispose(); oldXray?.dispose();
+    oldColor?.dispose(); oldSurface?.dispose(); oldXray?.dispose(); oldOrient?.dispose();
     ready = true;
     canvas.hidden = false;
     $('#fallback-image').hidden = true;

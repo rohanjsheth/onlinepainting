@@ -23,11 +23,30 @@ function blur(source, width, height, radius) {
   return out;
 }
 
+const TO_LINEAR = new Float32Array(256);
+for (let v = 0; v < 256; v++) {
+  const c = v / 255;
+  TO_LINEAR[v] = c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4);
+}
+const labCurve = (t) => t > .008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+
 function createSurface({ pixels, width, height }) {
   const rgba = new Uint8ClampedArray(pixels);
   const count = width * height;
   const luminance = new Float32Array(count);
-  for (let i = 0; i < count; i++) luminance[i] = (rgba[i * 4] * .2126 + rgba[i * 4 + 1] * .7152 + rgba[i * 4 + 2] * .0722) / 255;
+  // CIELAB, because thickness has to be legible in the darks. Linear RGB differences
+  // collapse to nothing in a shadowed passage; L* keeps them.
+  const labL = new Float32Array(count), labA = new Float32Array(count), labB = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    const r = TO_LINEAR[rgba[i * 4]], g = TO_LINEAR[rgba[i * 4 + 1]], b = TO_LINEAR[rgba[i * 4 + 2]];
+    luminance[i] = r * .2126 + g * .7152 + b * .0722;
+    const fx = labCurve((r * .4124 + g * .3576 + b * .1805) / .95047);
+    const fy = labCurve(r * .2126 + g * .7152 + b * .0722);
+    const fz = labCurve((r * .0193 + g * .1192 + b * .9505) / 1.08883);
+    labL[i] = 116 * fy - 16;
+    labA[i] = 500 * (fx - fy);
+    labB[i] = 200 * (fy - fz);
+  }
   // Exclude near-black photographic backdrops connected to the image border.
   // Interior dark pigment still gets relief, while the backdrop cannot become paint.
   const backdrop = new Uint8Array(count);
@@ -46,6 +65,23 @@ function createSurface({ pixels, width, height }) {
     if (i >= width) enqueue(i - width);
     if (i < count - width) enqueue(i + width);
   }
+  // Thickness as distance from the local colour, not from the local brightness. A dark
+  // stroke laid over dark ground is as much paint as a light one over light ground.
+  const meanL = blur(labL, width, height, 6), meanA = blur(labA, width, height, 6), meanB = blur(labB, width, height, 6);
+  const thick = new Float32Array(count);
+  const spread = new Int32Array(256);
+  for (let i = 0; i < count; i++) {
+    const dL = labL[i] - meanL[i], dA = labA[i] - meanA[i], dB = labB[i] - meanB[i];
+    const deviation = Math.sqrt(dL * dL + dA * dA + dB * dB);
+    thick[i] = deviation;
+    spread[Math.min(255, Math.round(deviation * 5))]++;
+  }
+  // Normalise against the 96th percentile so one bright fleck cannot set the scale.
+  let seen = 0, ceiling = 255;
+  for (let bin = 0; bin < 256; bin++) { seen += spread[bin]; if (seen > count * .96) { ceiling = bin; break; } }
+  const thickScale = 1 / Math.max(1.2, ceiling / 5);
+  for (let i = 0; i < count; i++) thick[i] = Math.min(1, thick[i] * thickScale);
+
   const fine = blur(luminance, width, height, 1);
   const broad = blur(fine, width, height, 5);
   const coarse = blur(broad, width, height, 12);
@@ -63,7 +99,7 @@ function createSurface({ pixels, width, height }) {
   const bodies = new Float32Array(count);
   let seed = 7319;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-  const strokeCount = Math.round(count / 150);
+  const strokeCount = Math.round(count / 70);
   for (let n = 0; n < strokeCount; n++) {
     const cx = 3 + random() * (width - 6), cy = 3 + random() * (height - 6);
     const center = Math.floor(cy) * width + Math.floor(cx);
@@ -80,7 +116,8 @@ function createSurface({ pixels, width, height }) {
     const c = Math.cos(angle), s = Math.sin(angle);
     const rx = Math.ceil(Math.abs(c) * halfLength + Math.abs(s) * halfWidth);
     const ry = Math.ceil(Math.abs(s) * halfLength + Math.abs(c) * halfWidth);
-    const amplitude = .2 + random() * .6;
+    // Amplitude follows measured thickness, so loaded passages build and thin ones stay flat.
+    const amplitude = (.18 + random() * .42) * (.25 + 1.35 * thick[center]);
     const phase = random() * Math.PI * 2;
     const color = [rgba[center * 4], rgba[center * 4 + 1], rgba[center * 4 + 2]];
     for (let y = Math.max(0, Math.floor(cy - ry)); y <= Math.min(height - 1, Math.ceil(cy + ry)); y++) {
@@ -99,25 +136,41 @@ function createSurface({ pixels, width, height }) {
       }
     }
   }
-  const paint = blur(deposits, width, height, 3);
-  const rounded = blur(bodies, width, height, 5);
+  // These were radius 3 and 5. An isotropic blur that wide rounds the oriented stamps
+  // back into blobs, which is what made the surface read as crumpled paper rather than
+  // brushwork. Keep it just wide enough to hide the stamp edges.
+  const paint = blur(deposits, width, height, 1);
+  const rounded = blur(bodies, width, height, 2);
+  const body = blur(thick, width, height, 2);
   const result = new Uint8Array(count * 4);
+  const orient = new Uint8Array(count * 4);
   for (let i = 0; i < count; i++) {
-    // A band-pass signal excludes broad light/dark subjects from the relief.
+    // Retained only as a roughness cue; it no longer decides how high the paint stands.
     const detail = Math.max(-.09, Math.min(.09, (fine[i] - broad[i]) * .20 + (broad[i] - coarse[i]) * .45));
-    const heightValue = Math.max(0, Math.min(1, .3 + detail + paint[i] * .22 + rounded[i] * .42));
+    const heightValue = Math.max(0, Math.min(1, .26 + paint[i] * .46 + rounded[i] * .30 + body[i] * .24));
     result[i * 4] = Math.round(heightValue * 255);
-    result[i * 4 + 1] = Math.round(Math.min(1, paint[i] * .8 + rounded[i] * 1.2) * 255);
+    result[i * 4 + 1] = Math.round(Math.min(1, paint[i] * .8 + rounded[i] * 1.2 + body[i] * .5) * 255);
     result[i * 4 + 2] = Math.round((.5 + detail) * 255);
     result[i * 4 + 3] = backdrop[i] ? 0 : 255;
+
+    // Stroke direction stored as a double angle, which survives bilinear filtering
+    // across the ±pi seam that a raw angle would tear on.
+    const energy = tx[i] + ty[i];
+    const spin = Math.sqrt((tx[i] - ty[i]) ** 2 + 4 * txy[i] ** 2);
+    const angle = .5 * Math.atan2(2 * txy[i], tx[i] - ty[i]) + Math.PI / 2;
+    orient[i * 4] = Math.round((Math.cos(2 * angle) * .5 + .5) * 255);
+    orient[i * 4 + 1] = Math.round((Math.sin(2 * angle) * .5 + .5) * 255);
+    orient[i * 4 + 2] = Math.round(Math.min(1, spin / (energy + .00001)) * 255);
+    orient[i * 4 + 3] = Math.round(thick[i] * 255);
   }
-  return result;
+  return { result, orient };
 }
 
 self.onmessage = ({ data }) => {
   try {
-    const result = createSurface(data);
-    self.postMessage({ pixels: result.buffer, width: data.width, height: data.height }, [result.buffer]);
+    const { result, orient } = createSurface(data);
+    self.postMessage({ pixels: result.buffer, orient: orient.buffer, width: data.width, height: data.height },
+      [result.buffer, orient.buffer]);
   } catch (error) {
     self.postMessage({ error: error.message || 'Unable to prepare the surface.' });
   }

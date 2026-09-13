@@ -20,6 +20,8 @@ export const fragmentShader = /* glsl */ `
   uniform sampler2D uSurface;
   uniform sampler2D uXray;
   uniform float uXrayGain;
+  uniform sampler2D uOrient;
+  uniform float uAniso;
   uniform vec2 uTexel;
   uniform vec2 uSize;
   uniform vec3 uLight;
@@ -105,9 +107,18 @@ export const fragmentShader = /* glsl */ `
     // Broad raised paint has a softer satin finish; grooves stay more matte.
     float roughness = clamp(uRoughness + .04 - surface.g * .08 + (surface.b - .5) * .10, .22, .95);
     float alpha = roughness * roughness;
-    float alpha2 = alpha * alpha;
-    float denom = NoH * NoH * (alpha2 - 1.0) + 1.0;
-    float D = alpha2 / max(PI * denom * denom, .00001);
+    // Bristles drag fine grooves along the stroke. Those act as cylinders lying in the
+    // stroke direction, so the sheen spreads across it rather than staying circular.
+    vec4 grain = texture2D(uOrient, uv);
+    float strokeAngle = .5 * atan(grain.g * 2.0 - 1.0, grain.r * 2.0 - 1.0);
+    vec3 strokeT = normalize(tbn * vec3(cos(strokeAngle), sin(strokeAngle), 0.0));
+    vec3 strokeB = normalize(cross(N, strokeT));
+    float aniso = clamp(uAniso * grain.b, 0.0, .92);
+    float alongA = max(alpha * (1.0 - aniso * .75), .002);
+    float acrossA = max(alpha * (1.0 + aniso * 1.6), .002);
+    float ToH = dot(strokeT, H), BoH = dot(strokeB, H);
+    float shape = ToH * ToH / (alongA * alongA) + BoH * BoH / (acrossA * acrossA) + NoH * NoH;
+    float D = 1.0 / max(PI * alongA * acrossA * shape * shape, .00001);
     float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
     float Gv = NoV / (NoV * (1.0 - k) + k);
     float Gl = NoL / (NoL * (1.0 - k) + k);
