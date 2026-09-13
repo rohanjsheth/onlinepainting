@@ -19,6 +19,39 @@ const sliders = [
   ['roughness', 'roughness', 100, '%'],
   ['light-angle', 'elevation', 1, '°'],
 ];
+const works = [
+  {
+    src: '/art/wheat-field.jpg',
+    artist: 'Vincent van Gogh', life: 'Dutch, 1853–1890',
+    title: 'Wheat Field with Cypresses', year: '1889',
+    place: 'Painted in Saint-Rémy-de-Provence, France', medium: 'Oil on canvas',
+    collection: 'The Metropolitan Museum of Art, New York', room: 'The Met Fifth Avenue, Gallery 822',
+    source: 'https://www.metmuseum.org/art/collection/search/436535',
+  },
+  {
+    src: '/art/roses.jpg',
+    artist: 'Vincent van Gogh', life: 'Dutch, 1853–1890',
+    title: 'Roses', year: '1890', medium: 'Oil on canvas',
+    collection: 'The Metropolitan Museum of Art, New York', room: 'The Met Fifth Avenue, Gallery 822',
+    source: 'https://www.metmuseum.org/art/collection/search/436534',
+  },
+  {
+    src: '/art/rouen-cathedral.jpg',
+    artist: 'Claude Monet', life: 'French, 1840–1926',
+    title: 'Rouen Cathedral, West Façade, Sunlight', year: '1894', medium: 'Oil on canvas',
+    collection: 'National Gallery of Art, Washington',
+    source: 'https://www.nga.gov/artworks/46654-rouen-cathedral-west-facade-sunlight',
+  },
+  {
+    src: '/art/taos-mountain.jpg',
+    artist: 'Cordelia Wilson', life: 'American, 1876–1953',
+    title: 'Taos Mountain Trail Home', year: 'c. 1915–1920s',
+    collection: 'Private collection, Kansas City, Missouri',
+    source: 'https://commons.wikimedia.org/wiki/File:Cordelia_Wilson_-_Taos_Mountain_Trail_Home.jpg',
+  },
+];
+let workIndex = 0, showingUpload = false;
+
 let renderer, scene, camera, painting, artworkGroup, material;
 let frameRequest = 0, previousTime = 0, ready = false;
 let aspect = 1200 / 955, cameraDistance = 4;
@@ -29,6 +62,51 @@ let currentObjectUrl;
 function status(message, error = false) {
   $('#status').textContent = message;
   $('#status').classList.toggle('error', error);
+}
+
+function text(value, tag = 'span') {
+  const node = document.createElement(tag);
+  node.textContent = value;
+  return node;
+}
+
+function setLines(element, lines) {
+  const present = lines.filter(Boolean);
+  element.replaceChildren();
+  present.forEach((line, index) => {
+    if (index) element.append(document.createElement('br'));
+    element.append(...[].concat(line));
+  });
+  element.hidden = present.length === 0;
+}
+
+function showLabel(work) {
+  const title = text(work.title, 'strong');
+  title.id = 'artwork-title';
+  let collection = work.collection && text(work.collection);
+  if (collection && work.source) {
+    collection = document.createElement('a');
+    collection.id = 'artwork-source';
+    collection.href = work.source;
+    collection.target = '_blank';
+    collection.rel = 'noreferrer';
+    collection.textContent = work.collection;
+  }
+  setLines($('#artwork-credit'), [work.artist && text(work.artist), work.life && text(work.life)]);
+  setLines($('#artwork-caption'), [
+    [title, work.year && text(`, ${work.year}`)].filter(Boolean),
+    work.place && text(work.place),
+    work.medium && text(work.medium),
+  ]);
+  setLines($('#artwork-exhibition'), [collection, work.room && text(work.room)]);
+  document.title = work.artist ? `${work.title} — ${work.artist}` : work.title;
+  canvas.setAttribute('aria-label', `${work.title} with simulated paint texture`);
+  $('#fallback-image').alt = work.artist ? `${work.title} by ${work.artist}` : work.title;
+}
+
+function setExpanded(expanded) {
+  document.body.classList.toggle('expanded', expanded);
+  stage.dataset.expanded = String(expanded);
 }
 
 function updateUI() {
@@ -45,6 +123,8 @@ function updateUI() {
   $('#compare').setAttribute('aria-pressed', String(state.original));
   $('#compare-label').textContent = state.original ? 'Return to textured view' : 'Compare original';
   $('#zoom-value').value = `${state.zoom}×`;
+  $('#previous-work').disabled = !ready || (!showingUpload && workIndex === 0);
+  $('#next-work').disabled = !ready || (!showingUpload && workIndex === works.length - 1);
   $('#zoom-out').disabled = state.zoom <= 1;
   $('#zoom-in').disabled = state.zoom >= 2;
   stage.classList.toggle('tilt-mode', state.mode === 'tilt');
@@ -182,11 +262,13 @@ function prepareSurface(image) {
   });
 }
 
-async function loadPainting(url, name) {
+async function loadPainting(work, uploaded = false) {
+  const url = work.src;
   const version = ++loadVersion;
   $('#loading').hidden = false;
-  $('#loading-message').textContent = 'Preparing the canvas…';
   $('#upload-button').disabled = true;
+  $('#previous-work').disabled = true;
+  $('#next-work').disabled = true;
   status('');
   let nextColor;
   try {
@@ -196,7 +278,6 @@ async function loadPainting(url, name) {
     if (image.naturalWidth < 32 || image.naturalHeight < 32) throw new Error('Please choose an image at least 32 pixels on each side.');
     const imageAspect = image.naturalWidth / image.naturalHeight;
     if (imageAspect < .2 || imageAspect > 5) throw new Error('Please choose a painting with an aspect ratio between 1:5 and 5:1.');
-    $('#loading-message').textContent = 'Bringing out the brushwork…';
     const surface = await prepareSurface(image);
     if (version !== loadVersion) return;
     const maxColorSize = Math.min(4096, renderer.capabilities.maxTextureSize);
@@ -229,14 +310,9 @@ async function loadPainting(url, name) {
     document.querySelectorAll('.controls button, .controls input, #compare').forEach((control) => { control.disabled = false; });
     stage.dataset.ready = 'true';
     $('#fallback-image').src = url;
-    if (name) {
-      $('#artwork-title').textContent = name;
-      $('#artwork-credit').textContent = 'Artist unknown';
-      for (const id of ['artwork-year', 'artwork-place', 'artwork-medium', 'artwork-exhibition']) $(`#${id}`).hidden = true;
-      document.title = name;
-      canvas.setAttribute('aria-label', `${name} with simulated paint texture`);
-      status('Your image is ready. Adjust the relief and canvas weave to suit the painting.');
-    }
+    showingUpload = uploaded;
+    showLabel(work);
+    if (uploaded) status('Your image is ready. Adjust the relief and canvas weave to suit the painting.');
     updateUI();
   } catch (error) {
     nextColor?.dispose();
@@ -254,7 +330,7 @@ function showFallback(message) {
   $('#fallback-image').hidden = false;
   canvas.hidden = true;
   $('#loading').hidden = true;
-  document.querySelectorAll('.controls button, .controls input, #compare, #upload-button').forEach((control) => { control.disabled = true; });
+  document.querySelectorAll('.controls button, .controls input, #compare, .works button, #upload-button').forEach((control) => { control.disabled = true; });
   status(message, true);
 }
 
@@ -270,6 +346,14 @@ $('#surface-only').addEventListener('click', () => { state.surfaceOnly = !state.
 $('#compare').addEventListener('click', () => { state.original = !state.original; updateUI(); });
 $('#zoom-in').addEventListener('click', () => { state.zoom = Math.min(2, state.zoom + .5); updateUI(); });
 $('#zoom-out').addEventListener('click', () => { state.zoom = Math.max(1, state.zoom - .5); updateUI(); });
+function showWork(index) {
+  const next = THREE.MathUtils.clamp(index, 0, works.length - 1);
+  if (!ready || (next === workIndex && !showingUpload)) return;
+  workIndex = next;
+  loadPainting(works[next]);
+}
+$('#previous-work').addEventListener('click', () => showWork(showingUpload ? workIndex : workIndex - 1));
+$('#next-work').addEventListener('click', () => showWork(showingUpload ? workIndex : workIndex + 1));
 $('#reset').addEventListener('click', () => {
   Object.assign(state, defaults);
   lightTarget.set(-.75, .55); tiltTarget.set(0, 0);
@@ -289,9 +373,20 @@ function movePointer(event) {
   }
   requestRender();
 }
+let pressOrigin;
 stage.addEventListener('pointermove', movePointer);
+stage.addEventListener('click', (event) => {
+  if (!ready || event.target.closest('button')) return;
+  if (!pressOrigin || pressOrigin.pointerType === 'touch') return;
+  if (Math.hypot(event.clientX - pressOrigin.x, event.clientY - pressOrigin.y) > 6) return;
+  setExpanded(!document.body.classList.contains('expanded'));
+});
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') setExpanded(false);
+});
 stage.addEventListener('pointerdown', (event) => {
   if (event.target.closest('button')) return;
+  pressOrigin = { x: event.clientX, y: event.clientY, pointerType: event.pointerType };
   if (event.pointerType === 'touch' || event.pointerType === 'pen') stage.setPointerCapture(event.pointerId);
   movePointer(event);
 });
@@ -300,6 +395,10 @@ stage.addEventListener('pointerup', (event) => { if (stage.hasPointerCapture(eve
 stage.addEventListener('pointercancel', () => { tiltTarget.set(0, 0); requestRender(); });
 stage.addEventListener('keydown', (event) => {
   if (event.target !== stage || !ready) return;
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    return setExpanded(!document.body.classList.contains('expanded'));
+  }
   const delta = { ArrowLeft: [-.15, 0], ArrowRight: [.15, 0], ArrowUp: [0, .15], ArrowDown: [0, -.15] }[event.key];
   const target = state.mode === 'tilt' ? tiltTarget : lightTarget;
   if (delta) { event.preventDefault(); target.add(new THREE.Vector2(...delta)).clampLength(0, 1); requestRender(); }
@@ -315,7 +414,7 @@ $('#upload').addEventListener('change', async (event) => {
   if (file.size > 40 * 1024 * 1024) return status('Please choose an image smaller than 40 MB.', true);
   const url = URL.createObjectURL(file);
   const previousUrl = currentObjectUrl;
-  await loadPainting(url, file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '));
+  await loadPainting({ src: url, title: file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '), artist: 'Artist unknown' }, true);
   if ($('#fallback-image').getAttribute('src') === url) {
     currentObjectUrl = url;
     if (previousUrl) URL.revokeObjectURL(previousUrl);
@@ -332,8 +431,9 @@ try {
   frameLight.position.set(-2, 4, 5); scene.add(frameLight);
   new ResizeObserver(resize).observe(stage);
   canvas.addEventListener('webglcontextlost', (event) => { event.preventDefault(); showFallback('Graphics rendering was interrupted. Refresh to restore the textured viewer.'); });
+  setExpanded(true);
   updateUI();
-  loadPainting('/art/wheat-field.jpg');
+  loadPainting(works[workIndex]);
 } catch {
   showFallback('This browser could not start WebGL. The original image is shown instead.');
 }
