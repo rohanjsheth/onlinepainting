@@ -85,10 +85,12 @@ function text(value, tag = 'span') {
 function setLines(element, lines) {
   const present = lines.filter(Boolean);
   element.replaceChildren();
-  present.forEach((line, index) => {
-    if (index) element.append(document.createElement('br'));
-    element.append(...[].concat(line));
-  });
+  for (const line of present) {
+    const row = document.createElement('span');
+    row.className = 'label-line';
+    row.append(...[].concat(line));
+    element.append(row);
+  }
   element.hidden = present.length === 0;
 }
 
@@ -231,6 +233,11 @@ function resize() {
   // Align the wall label with the left edge of the painting at its resting view.
   const artworkWidth = height / (cameraDistance * Math.tan(halfFov));
   $('main').style.setProperty('--artwork-left', `${Math.max(24, (width - artworkWidth) / 2)}px`);
+  // Does the wall label still have somewhere to sit that isn't on the painting?
+  const pixelsPerUnit = height / (2 * cameraDistance * Math.tan(halfFov));
+  const roomBelow = (height - (2 / aspect) * pixelsPerUnit) / 2;
+  const roomBeside = (width - 2 * pixelsPerUnit) / 2;
+  document.body.classList.toggle('label-tight', roomBelow < 210 && roomBeside < 290);
   clampPan();
   requestRender();
 }
