@@ -7,7 +7,7 @@ const stage = $('#stage');
 const canvas = $('#gallery-canvas');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const MAX_TILT = THREE.MathUtils.degToRad(3);
-const defaults = { weave: .30, relief: .45, roughness: .55, elevation: 35, mode: 'light', surfaceOnly: false, original: false, zoom: 1 };
+const defaults = { weave: .30, relief: .45, roughness: .55, elevation: 35, mode: 'tilt', surfaceOnly: false, original: false, zoom: 1 };
 const state = { ...defaults };
 const lightTarget = new THREE.Vector2(-.75, .55);
 const tiltTarget = new THREE.Vector2();
@@ -47,7 +47,6 @@ function updateUI() {
   $('#zoom-value').value = `${state.zoom}×`;
   $('#zoom-out').disabled = state.zoom <= 1;
   $('#zoom-in').disabled = state.zoom >= 2;
-  $('#mode-note').textContent = state.mode === 'light' ? 'Move the light; keep your view still.' : 'Move gently. Your head tilt stays within 3°.';
   stage.classList.toggle('tilt-mode', state.mode === 'tilt');
   stage.setAttribute('aria-label', `Interactive painting. ${state.mode === 'light' ? 'Move the pointer to move the light.' : 'Move the pointer to tilt your viewpoint, limited to three degrees.'} Arrow keys also control this interaction. Press Home to center.`);
   requestRender();
