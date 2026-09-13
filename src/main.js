@@ -13,6 +13,7 @@ const lightTarget = new THREE.Vector2(-.75, .55);
 const tiltTarget = new THREE.Vector2();
 const lightCurrent = lightTarget.clone();
 const tiltCurrent = tiltTarget.clone();
+const pan = new THREE.Vector2();
 const sliders = [
   ['canvas-weave', 'weave', 100, '%'],
   ['paint-relief', 'relief', 100, '%'],
@@ -27,6 +28,14 @@ const works = [
     place: 'Painted in Saint-Rémy-de-Provence, France', medium: 'Oil on canvas',
     collection: 'The Metropolitan Museum of Art, New York', room: 'The Met Fifth Avenue, Gallery 822',
     source: 'https://www.metmuseum.org/art/collection/search/436535',
+  },
+  {
+    src: '/art/starry-night.jpg',
+    artist: 'Vincent van Gogh', life: 'Dutch, 1853–1890',
+    title: 'The Starry Night', year: '1889',
+    place: 'Painted in Saint-Rémy-de-Provence, France', medium: 'Oil on canvas',
+    collection: 'The Museum of Modern Art, New York',
+    source: 'https://www.moma.org/collection/works/79802',
   },
   {
     src: '/art/roses.jpg',
@@ -128,6 +137,7 @@ function updateUI() {
   $('#zoom-out').disabled = state.zoom <= 1;
   $('#zoom-in').disabled = state.zoom >= 2;
   stage.classList.toggle('tilt-mode', state.mode === 'tilt');
+  stage.classList.toggle('pan-mode', state.zoom > 1);
   stage.setAttribute('aria-label', `Interactive painting. ${state.mode === 'light' ? 'Move the pointer to move the light.' : 'Move the pointer to tilt your viewpoint, limited to three degrees.'} Arrow keys also control this interaction. Press Home to center.`);
   requestRender();
 }
@@ -147,8 +157,8 @@ function render(time) {
   if (tiltCurrent.distanceToSquared(tiltTarget) < .000001) tiltCurrent.copy(tiltTarget);
   if (camera) {
     const distance = cameraDistance / state.zoom;
-    camera.position.set(tiltCurrent.x * Math.tan(MAX_TILT) * distance, tiltCurrent.y * Math.tan(MAX_TILT) * distance, distance);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(pan.x + tiltCurrent.x * Math.tan(MAX_TILT) * distance, pan.y + tiltCurrent.y * Math.tan(MAX_TILT) * distance, distance);
+    camera.lookAt(pan.x, pan.y, 0);
   }
   if (material) {
     const elevation = THREE.MathUtils.degToRad(state.elevation);
@@ -166,6 +176,22 @@ function render(time) {
   if (lightCurrent.distanceToSquared(lightTarget) > .000001 || tiltCurrent.distanceToSquared(tiltTarget) > .000001) requestRender();
 }
 
+// Half the world-space area the camera sees at the current zoom.
+function viewHalfSize() {
+  const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+  const halfHeight = (cameraDistance / state.zoom) * Math.tan(halfFov);
+  return new THREE.Vector2(halfHeight * camera.aspect, halfHeight);
+}
+
+// Keep the pan inside the painting, so its edges never pull away from the view.
+function clampPan() {
+  if (!camera) return;
+  const view = viewHalfSize();
+  const limitX = Math.max(0, 1 - view.x);
+  const limitY = Math.max(0, 1 / aspect - view.y);
+  pan.set(THREE.MathUtils.clamp(pan.x, -limitX, limitX), THREE.MathUtils.clamp(pan.y, -limitY, limitY));
+}
+
 function resize() {
   if (!renderer) return;
   const { width, height } = stage.getBoundingClientRect();
@@ -178,6 +204,7 @@ function resize() {
   // Align the wall label with the left edge of the painting at its resting view.
   const artworkWidth = height / (cameraDistance * Math.tan(halfFov));
   $('main').style.setProperty('--artwork-left', `${Math.max(24, (width - artworkWidth) / 2)}px`);
+  clampPan();
   requestRender();
 }
 
@@ -213,12 +240,6 @@ function mountPainting() {
   const width = 2, height = width / aspect;
   artworkGroup = new THREE.Group();
   artworkGroup.add(createShadow(width, height));
-  const backing = new THREE.Mesh(new THREE.BoxGeometry(width + .026, height + .026, .026), new THREE.MeshStandardMaterial({ color: '#8b8165', roughness: .82 }));
-  backing.position.z = -.015;
-  artworkGroup.add(backing);
-  const inset = new THREE.Mesh(new THREE.PlaneGeometry(width + .01, height + .01), new THREE.MeshBasicMaterial({ color: '#c8ba93' }));
-  inset.position.z = -.0008;
-  artworkGroup.add(inset);
   material = new THREE.ShaderMaterial({
     vertexShader, fragmentShader,
     uniforms: {
@@ -301,7 +322,7 @@ async function loadPainting(work, uploaded = false) {
     const oldColor = colorTexture, oldSurface = surfaceTexture;
     colorTexture = nextColor; surfaceTexture = nextSurface;
     aspect = imageAspect;
-    state.zoom = 1; state.original = false;
+    state.zoom = 1; state.original = false; pan.set(0, 0);
     mountPainting();
     oldColor?.dispose(); oldSurface?.dispose();
     ready = true;
@@ -344,8 +365,8 @@ document.querySelectorAll('[data-mode]').forEach((button) => button.addEventList
 }));
 $('#surface-only').addEventListener('click', () => { state.surfaceOnly = !state.surfaceOnly; state.original = false; updateUI(); });
 $('#compare').addEventListener('click', () => { state.original = !state.original; updateUI(); });
-$('#zoom-in').addEventListener('click', () => { state.zoom = Math.min(2, state.zoom + .5); updateUI(); });
-$('#zoom-out').addEventListener('click', () => { state.zoom = Math.max(1, state.zoom - .5); updateUI(); });
+$('#zoom-in').addEventListener('click', () => { state.zoom = Math.min(2, state.zoom + .5); clampPan(); updateUI(); });
+$('#zoom-out').addEventListener('click', () => { state.zoom = Math.max(1, state.zoom - .5); clampPan(); updateUI(); });
 function showWork(index) {
   const next = THREE.MathUtils.clamp(index, 0, works.length - 1);
   if (!ready || (next === workIndex && !showingUpload)) return;
@@ -356,7 +377,7 @@ $('#previous-work').addEventListener('click', () => showWork(showingUpload ? wor
 $('#next-work').addEventListener('click', () => showWork(showingUpload ? workIndex : workIndex + 1));
 $('#reset').addEventListener('click', () => {
   Object.assign(state, defaults);
-  lightTarget.set(-.75, .55); tiltTarget.set(0, 0);
+  lightTarget.set(-.75, .55); tiltTarget.set(0, 0); pan.set(0, 0);
   updateUI(); status('View and surface settings reset.');
 });
 
@@ -373,8 +394,27 @@ function movePointer(event) {
   }
   requestRender();
 }
-let pressOrigin;
-stage.addEventListener('pointermove', movePointer);
+let pressOrigin, dragOrigin;
+
+function canPan() {
+  const view = viewHalfSize();
+  return ready && (view.x < 1 || view.y < 1 / aspect);
+}
+
+function dragPan(event) {
+  const rect = stage.getBoundingClientRect();
+  const perPixel = viewHalfSize().y * 2 / rect.height;
+  pan.x -= (event.clientX - dragOrigin.x) * perPixel;
+  pan.y += (event.clientY - dragOrigin.y) * perPixel;
+  dragOrigin = { x: event.clientX, y: event.clientY };
+  clampPan();
+  requestRender();
+}
+
+stage.addEventListener('pointermove', (event) => {
+  if (dragOrigin) return dragPan(event);
+  movePointer(event);
+});
 stage.addEventListener('click', (event) => {
   if (!ready || event.target.closest('button')) return;
   if (!pressOrigin || pressOrigin.pointerType === 'touch') return;
@@ -387,12 +427,17 @@ window.addEventListener('keydown', (event) => {
 stage.addEventListener('pointerdown', (event) => {
   if (event.target.closest('button')) return;
   pressOrigin = { x: event.clientX, y: event.clientY, pointerType: event.pointerType };
+  if (canPan()) {
+    dragOrigin = { x: event.clientX, y: event.clientY };
+    stage.setPointerCapture(event.pointerId);
+    return;
+  }
   if (event.pointerType === 'touch' || event.pointerType === 'pen') stage.setPointerCapture(event.pointerId);
   movePointer(event);
 });
-stage.addEventListener('pointerleave', () => { tiltTarget.set(0, 0); requestRender(); });
-stage.addEventListener('pointerup', (event) => { if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId); });
-stage.addEventListener('pointercancel', () => { tiltTarget.set(0, 0); requestRender(); });
+stage.addEventListener('pointerleave', () => { if (!dragOrigin) { tiltTarget.set(0, 0); requestRender(); } });
+stage.addEventListener('pointerup', (event) => { dragOrigin = undefined; if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId); });
+stage.addEventListener('pointercancel', () => { dragOrigin = undefined; tiltTarget.set(0, 0); requestRender(); });
 stage.addEventListener('keydown', (event) => {
   if (event.target !== stage || !ready) return;
   if (event.key === 'Enter' || event.key === ' ') {
@@ -400,9 +445,16 @@ stage.addEventListener('keydown', (event) => {
     return setExpanded(!document.body.classList.contains('expanded'));
   }
   const delta = { ArrowLeft: [-.15, 0], ArrowRight: [.15, 0], ArrowUp: [0, .15], ArrowDown: [0, -.15] }[event.key];
+  if (delta && canPan()) {
+    event.preventDefault();
+    pan.x += delta[0] * viewHalfSize().x;
+    pan.y += delta[1] * viewHalfSize().y;
+    clampPan();
+    return requestRender();
+  }
   const target = state.mode === 'tilt' ? tiltTarget : lightTarget;
   if (delta) { event.preventDefault(); target.add(new THREE.Vector2(...delta)).clampLength(0, 1); requestRender(); }
-  if (event.key === 'Home') { event.preventDefault(); target.copy(state.mode === 'tilt' ? new THREE.Vector2() : new THREE.Vector2(-.75, .55)); requestRender(); }
+  if (event.key === 'Home') { event.preventDefault(); pan.set(0, 0); target.copy(state.mode === 'tilt' ? new THREE.Vector2() : new THREE.Vector2(-.75, .55)); requestRender(); }
 });
 
 $('#upload-button').addEventListener('click', () => $('#upload').click());
@@ -443,5 +495,6 @@ Object.defineProperty(window, '__gallery', { get: () => ({
   ready, ...state,
   tiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltCurrent.length() * Math.tan(MAX_TILT))),
   targetTiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltTarget.length() * Math.tan(MAX_TILT))),
+  pan: [pan.x, pan.y], canPan: renderer ? canPan() : false,
   textureSize: surfaceTexture ? [surfaceTexture.image.width, surfaceTexture.image.height] : null,
 }) });
