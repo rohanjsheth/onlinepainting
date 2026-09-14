@@ -58,15 +58,20 @@ test('renders paint, relights it, limits head tilt, and preserves the original c
   await expect(page.locator('#surface-only')).toHaveAttribute('aria-checked', 'true');
   Object.assign(area, await page.locator('#stage').boundingBox());
   await page.mouse.click(area.x + area.width * .3, area.y + area.height * .35);
-  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(2);
+  expect(await page.evaluate(() => window.__gallery.zoom)).toBe(1);
+  await page.mouse.wheel(0, -250);
+  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBeGreaterThan(1);
   expect(await page.evaluate(() => window.__gallery.pan.some(v => v !== 0))).toBe(true);
   await page.keyboard.press('Escape');
   await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(1);
   await expect.poll(() => page.evaluate(() => window.__gallery.pan.map(v => v === 0 ? 0 : v))).toEqual([0, 0]);
   await page.mouse.click(area.x + area.width * .3, area.y + area.height * .35);
-  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(2);
+  await page.mouse.wheel(0, -250);
+  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBeGreaterThan(1);
+  const zoom = await page.evaluate(() => window.__gallery.zoom);
   await page.mouse.click(area.x + area.width * .5, area.y + area.height * .5);
-  await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(1);
+  expect(await page.evaluate(() => window.__gallery.zoom)).toBe(zoom);
+  await page.keyboard.press('Escape');
   await page.locator('#canvas-weave').fill('0');
   const withoutWeave = await painting.screenshot();
   await page.locator('#canvas-weave').fill('100');
@@ -80,6 +85,51 @@ test('renders paint, relights it, limits head tilt, and preserves the original c
   await page.locator('#viewing-options summary').click();
   await page.screenshot({ path: 'test-results/gallery-desktop.png', fullPage: true });
   expect(errors).toEqual([]);
+});
+
+test('scroll zoom anchors zoom-in and recenters zoom-out, including tilted views and zoom limits', async ({ page }) => {
+  await loaded(page);
+  const area = await page.locator('#stage').boundingBox();
+  const x = Math.round(area.x + area.width * .68), y = Math.round(area.y + area.height * .3);
+  await page.mouse.move(x, y);
+  await expect.poll(() => page.evaluate(() => window.__gallery.tiltDegrees)).toBeGreaterThan(1);
+  // Unproject the cursor onto the canvas plane, then project that same detail after each zoom.
+  await page.evaluate(async ({ x, y }) => {
+    const THREE = await import('/node_modules/.vite/deps/three.js');
+    const rect = document.querySelector('#stage').getBoundingClientRect();
+    const ndc = new THREE.Vector3((x - rect.left) / rect.width * 2 - 1, 1 - (y - rect.top) / rect.height * 2, -1);
+    window.zoomAnchorError = () => {
+      const matrix = new THREE.Matrix4().fromArray(window.__gallery.viewProjection);
+      const projected = window.zoomAnchor.clone().applyMatrix4(matrix);
+      return Math.hypot((projected.x - ndc.x) * rect.width / 2, (projected.y - ndc.y) * rect.height / 2);
+    };
+    window.captureZoomAnchor = () => {
+      const inverse = new THREE.Matrix4().fromArray(window.__gallery.viewProjection).invert();
+      const near = ndc.clone().applyMatrix4(inverse);
+      const far = ndc.clone().setZ(1).applyMatrix4(inverse);
+      window.zoomAnchor = near.clone().addScaledVector(far.sub(near), -near.z / far.z);
+    };
+  }, { x, y });
+  // Freeze the displayed tilt and capture the anchor in the same task as the wheel event.
+  for (const delta of [-40, -180, -300, -300, -300, -300, 4, 4, 4, 120, 300, 300, 300, 300, 300]) {
+    await page.evaluate(({ x, y, delta }) => {
+      window.captureZoomAnchor();
+      document.querySelector('#stage').dispatchEvent(new WheelEvent('wheel', { clientX: x, clientY: y, deltaY: delta, cancelable: true }));
+    }, { x, y, delta });
+    if (delta < 0 || delta === 4) {
+      await expect.poll(() => page.evaluate(() => window.zoomAnchorError())).toBeLessThan(.01);
+    }
+    expect(await page.evaluate(() => window.__gallery.zoom)).toBeGreaterThanOrEqual(1);
+    expect(await page.evaluate(() => window.__gallery.zoom)).toBeLessThanOrEqual(8);
+  }
+  expect(await page.evaluate(() => window.__gallery.zoom)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__gallery.pan.map(value => value || 0))).toEqual([0, 0]);
+  for (const zoom of [2, 4, 8, 8]) {
+    await page.mouse.dblclick(x, y);
+    await expect.poll(() => page.evaluate(() => window.__gallery.zoom)).toBe(zoom);
+  }
+  await page.mouse.click(x, y);
+  expect(await page.evaluate(() => window.__gallery.zoom)).toBe(8);
 });
 
 test('fits a phone screen and supports touch and accessible controls', async ({ browser }) => {
@@ -106,14 +156,14 @@ test('fits a phone screen and supports touch and accessible controls', async ({ 
 
 test('names the next work before its image arrives, and warms the neighbours', async ({ page }) => {
   await loaded(page);
-  await expect.poll(() => page.evaluate(() => window.__gallery.preloaded)).toEqual(['/art/starry-night.jpg']);
+  await expect.poll(() => page.evaluate(() => window.__gallery.preloaded)).toEqual(['/art/roses.jpg']);
   await page.locator('#next-work').click();
   // The label leads; the painting is still on its way.
-  await expect(page.locator('#artwork-title')).toHaveText('The Starry Night', { timeout: 5000 });
+  await expect(page.locator('#artwork-title')).toHaveText('Roses', { timeout: 5000 });
   await expect(page.locator('#stage')).toHaveClass(/loading-work/);
   await expect(page.locator('#stage')).not.toHaveClass(/loading-work/, { timeout: 45000 });
   await expect.poll(() => page.evaluate(() => window.__gallery.preloaded), { timeout: 15000 })
-    .toEqual(['/art/wheat-field.webp', '/art/roses.jpg']);
+    .toEqual(['/art/wheat-field.webp', '/art/starry-night.jpg']);
   // Both neighbours are synthesised ahead of time, not merely downloaded.
   await expect.poll(() => page.evaluate(() => [...window.__gallery.warmed].sort()), { timeout: 90000 })
     .toEqual(['/art/roses.jpg', '/art/starry-night.jpg', '/art/wheat-field.webp']);

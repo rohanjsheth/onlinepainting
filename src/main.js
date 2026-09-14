@@ -7,13 +7,17 @@ const stage = $('#stage');
 const canvas = $('#gallery-canvas');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const MAX_TILT = THREE.MathUtils.degToRad(4.5);
-const defaults = { weave: .30, relief: .50, roughness: .58, elevation: 30, xray: 1, aniso: .75, mode: 'tilt', surfaceOnly: false, original: false, zoom: 1 };
+const defaults = { weave: .30, relief: .90, roughness: .58, elevation: 30, xray: 1, aniso: .75, mode: 'tilt', surfaceOnly: false, original: false, zoom: 1 };
 const state = { ...defaults };
 const lightTarget = new THREE.Vector2(-.75, .55);
 const tiltTarget = new THREE.Vector2();
 const lightCurrent = lightTarget.clone();
 const tiltCurrent = tiltTarget.clone();
 const pan = new THREE.Vector2();
+let recenterTarget;
+let wheelTime = 0, wheelSpeed = 0;
+let recenterTime = 0;
+const RECENTER_EASE = 6; // Per second: ease through most of the move over roughly half a second.
 const sliders = [
   ['canvas-weave', 'weave', 100, '%'],
   ['paint-relief', 'relief', 100, '%'],
@@ -33,19 +37,19 @@ const works = [
     source: 'https://www.metmuseum.org/art/collection/search/436535',
   },
   {
+    src: '/art/roses.jpg',
+    artist: 'Vincent van Gogh', life: 'Dutch, 1853–1890',
+    title: 'Roses', year: '1890', medium: 'Oil on canvas',
+    collection: 'The Metropolitan Museum of Art, New York', room: 'The Met Fifth Avenue, Gallery 822',
+    source: 'https://www.metmuseum.org/art/collection/search/436534',
+  },
+  {
     src: '/art/starry-night.jpg',
     artist: 'Vincent van Gogh', life: 'Dutch, 1853–1890',
     title: 'The Starry Night', year: '1889',
     place: 'Painted in Saint-Rémy-de-Provence, France', medium: 'Oil on canvas',
     collection: 'The Museum of Modern Art, New York',
     source: 'https://www.moma.org/collection/works/79802',
-  },
-  {
-    src: '/art/roses.jpg',
-    artist: 'Vincent van Gogh', life: 'Dutch, 1853–1890',
-    title: 'Roses', year: '1890', medium: 'Oil on canvas',
-    collection: 'The Metropolitan Museum of Art, New York', room: 'The Met Fifth Avenue, Gallery 822',
-    source: 'https://www.metmuseum.org/art/collection/search/436534',
   },
   {
     src: '/art/rouen-cathedral.jpg',
@@ -127,19 +131,47 @@ function showLabel(work) {
   $('#fallback-image').alt = work.artist ? `${work.title} by ${work.artist}` : work.title;
 }
 
-// Zoom to the point under the pointer, so a click lands on the brushwork you aimed at.
-function lookCloser(event) {
-  const view = viewHalfSize();
-  let target = new THREE.Vector2();
-  if (event) {
-    const rect = stage.getBoundingClientRect();
-    const ndcX = (event.clientX - rect.left) / rect.width * 2 - 1;
-    const ndcY = 1 - (event.clientY - rect.top) / rect.height * 2;
-    target.set(pan.x + ndcX * view.x, pan.y + ndcY * view.y);
+function updateCamera() {
+  const distance = cameraDistance / state.zoom;
+  camera.position.set(pan.x - tiltCurrent.x * Math.tan(MAX_TILT) * distance, pan.y - tiltCurrent.y * Math.tan(MAX_TILT) * distance, distance);
+  camera.lookAt(pan.x, pan.y, 0);
+  camera.updateMatrixWorld();
+}
+
+function pointOnPainting(ndc) {
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(ndc, camera);
+  return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Vector3());
+}
+
+function zoomAt(zoom, event, recenter = 1) {
+  const nextZoom = THREE.MathUtils.clamp(zoom, 1, 8);
+  if (nextZoom === state.zoom) return;
+  const rect = stage.getBoundingClientRect();
+  const ndc = event ? new THREE.Vector2(
+    (event.clientX - rect.left) / rect.width * 2 - 1,
+    1 - (event.clientY - rect.top) / rect.height * 2,
+  ) : new THREE.Vector2();
+  // Finish any pending head movement at the displayed angle so the anchor cannot drift.
+  tiltTarget.copy(tiltCurrent);
+  updateCamera();
+  const before = pointOnPainting(ndc);
+  const previousZoom = state.zoom;
+  const previousCenter = (recenterTarget || pan).clone();
+  state.zoom = nextZoom;
+  updateCamera();
+  const after = pointOnPainting(ndc);
+  // Precision scrolling stays anchored in either direction.
+  pan.x += before.x - after.x;
+  pan.y += before.y - after.y;
+  if (nextZoom < previousZoom && recenter > 0) {
+    const centered = previousCenter.multiplyScalar((nextZoom - 1) / (previousZoom - 1));
+    recenterTarget = pan.clone().lerp(centered, recenter);
+    recenterTime = performance.now();
+  } else {
+    recenterTarget = undefined;
   }
-  state.zoom = 2;
-  pan.copy(target);
-  clampPan();
+  updateCamera();
   updateUI();
 }
 
@@ -175,7 +207,7 @@ function updateUI() {
   stage.classList.toggle('tilt-mode', state.mode === 'tilt');
   stage.classList.toggle('pan-mode', state.zoom > 1);
   $('#xray-control').hidden = !xrayTexture;
-  stage.setAttribute('aria-label', `Interactive painting. ${state.mode === 'light' ? 'Move the pointer to move the light.' : 'Move the pointer to tilt your viewpoint, limited to 4.5 degrees.'} Arrow keys also control this interaction. Press Home to center.`);
+  stage.setAttribute('aria-label', `Interactive painting. Scroll or double-click to zoom at the cursor. Drag to pan when zoomed in. ${state.mode === 'light' ? 'Move the pointer to move the light.' : 'Move the pointer to tilt your viewpoint, limited to 4.5 degrees.'} Arrow keys also control this interaction. Press + or - to zoom, Home to center, or Escape to step back.`);
   requestRender();
 }
 
@@ -190,15 +222,18 @@ function render(time) {
   const smoothing = reducedMotion.matches ? 1 : 1 - Math.exp(-dt * 12);
   lightCurrent.lerp(lightTarget, smoothing);
   tiltCurrent.lerp(tiltTarget, smoothing);
+  if (recenterTarget) {
+    const elapsed = Math.max(0, (time - recenterTime) / 1000);
+    recenterTime = time;
+    pan.lerp(recenterTarget, reducedMotion.matches ? 1 : 1 - Math.exp(-elapsed * RECENTER_EASE));
+    if (pan.distanceToSquared(recenterTarget) < .00000001) {
+      pan.copy(recenterTarget);
+      recenterTarget = undefined;
+    }
+  }
   if (lightCurrent.distanceToSquared(lightTarget) < .000001) lightCurrent.copy(lightTarget);
   if (tiltCurrent.distanceToSquared(tiltTarget) < .000001) tiltCurrent.copy(tiltTarget);
-  if (camera) {
-    const distance = cameraDistance / state.zoom;
-    // Move the viewpoint opposite the pointer so the painting's apparent tilt
-    // follows the gesture. Keep panning in its existing screen-space direction.
-    camera.position.set(pan.x - tiltCurrent.x * Math.tan(MAX_TILT) * distance, pan.y - tiltCurrent.y * Math.tan(MAX_TILT) * distance, distance);
-    camera.lookAt(pan.x, pan.y, 0);
-  }
+  if (camera) updateCamera();
   if (material) {
     const elevation = THREE.MathUtils.degToRad(state.elevation);
     const direction = lightCurrent.clone();
@@ -214,7 +249,7 @@ function render(time) {
     material.uniforms.uOriginal.value = state.original;
   }
   renderer.render(scene, camera);
-  if (lightCurrent.distanceToSquared(lightTarget) > .000001 || tiltCurrent.distanceToSquared(tiltTarget) > .000001) requestRender();
+  if (recenterTarget || lightCurrent.distanceToSquared(lightTarget) > .000001 || tiltCurrent.distanceToSquared(tiltTarget) > .000001) requestRender();
 }
 
 // Half the world-space area the camera sees at the current zoom.
@@ -226,6 +261,7 @@ function viewHalfSize() {
 
 // Keep the pan inside the painting, so its edges never pull away from the view.
 function clampPan() {
+  recenterTarget = undefined;
   if (!camera) return;
   const view = viewHalfSize();
   const limitX = Math.max(0, 1 - view.x);
@@ -438,7 +474,7 @@ async function loadPainting(work) {
     const oldColor = colorTexture, oldSurface = surfaceTexture, oldXray = xrayTexture, oldOrient = orientTexture;
     colorTexture = nextColor; surfaceTexture = nextSurface; xrayTexture = nextXray; orientTexture = nextOrient;
     aspect = imageAspect;
-    state.zoom = 1; state.original = false; pan.set(0, 0);
+    state.zoom = 1; state.original = false; pan.set(0, 0); recenterTarget = undefined;
     mountPainting();
     oldColor?.dispose(); oldSurface?.dispose(); oldXray?.dispose(); oldOrient?.dispose();
     ready = true;
@@ -493,6 +529,7 @@ $('#previous-work').addEventListener('click', () => showWork(workIndex - 1));
 $('#next-work').addEventListener('click', () => showWork(workIndex + 1));
 $('#reset').addEventListener('click', () => {
   Object.assign(state, defaults);
+  recenterTarget = undefined;
   lightTarget.set(-.75, .55); tiltTarget.set(0, 0); pan.set(0, 0);
   updateUI(); status('View and surface settings reset.');
 });
@@ -510,20 +547,21 @@ function movePointer(event) {
   }
   requestRender();
 }
-let pressOrigin, dragOrigin;
+let dragOrigin;
 
 function canPan() {
-  const view = viewHalfSize();
-  return ready && (view.x < 1 || view.y < 1 / aspect);
+  return ready && state.zoom > 1;
 }
 
 function dragPan(event) {
   const rect = stage.getBoundingClientRect();
-  const perPixel = viewHalfSize().y * 2 / rect.height;
-  pan.x -= (event.clientX - dragOrigin.x) * perPixel;
-  pan.y += (event.clientY - dragOrigin.y) * perPixel;
+  updateCamera();
+  const ndc = (x, y) => new THREE.Vector2((x - rect.left) / rect.width * 2 - 1, 1 - (y - rect.top) / rect.height * 2);
+  const before = pointOnPainting(ndc(dragOrigin.x, dragOrigin.y));
+  const after = pointOnPainting(ndc(event.clientX, event.clientY));
+  pan.x += before.x - after.x;
+  pan.y += before.y - after.y;
   dragOrigin = { x: event.clientX, y: event.clientY };
-  clampPan();
   requestRender();
 }
 
@@ -531,21 +569,32 @@ stage.addEventListener('pointermove', (event) => {
   if (dragOrigin) return dragPan(event);
   movePointer(event);
 });
-stage.addEventListener('click', (event) => {
-  if (!ready || event.target.closest('button')) return;
-  if (!pressOrigin || pressOrigin.pointerType === 'touch') return;
-  if (Math.hypot(event.clientX - pressOrigin.x, event.clientY - pressOrigin.y) > 6) return;
-  if (!document.body.classList.contains('expanded')) return setExpanded(true);
-  if (state.zoom > 1) return stepBack();
-  lookCloser(event);
+stage.addEventListener('wheel', (event) => {
+  if (!ready || event.deltaY === 0) return;
+  event.preventDefault();
+  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientHeight : 1;
+  const delta = THREE.MathUtils.clamp(event.deltaY * unit, -300, 300);
+  const now = performance.now();
+  // A short, decaying window distinguishes a flick from small precision adjustments.
+  // Normalize wheel units first so mouse wheels and trackpads share the same curve.
+  wheelSpeed = delta > 0 ? wheelSpeed * Math.exp(-(now - wheelTime) / 120) + delta / .12 : 0;
+  wheelTime = now;
+  const recenter = THREE.MathUtils.smoothstep(wheelSpeed, 700, 2200);
+  zoomAt(state.zoom * Math.exp(-delta * .002), event, recenter);
+}, { passive: false });
+stage.addEventListener('dblclick', (event) => {
+  if (!ready || event.button !== 0) return;
+  event.preventDefault();
+  zoomAt(state.zoom * 2, event);
 });
 window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') stepBack();
 });
 stage.addEventListener('pointerdown', (event) => {
-  if (event.target.closest('button')) return;
-  pressOrigin = { x: event.clientX, y: event.clientY, pointerType: event.pointerType };
+  if (!ready || event.button !== 0 || event.target.closest('button')) return;
   if (canPan()) {
+    recenterTarget = undefined;
+    tiltTarget.copy(tiltCurrent);
     dragOrigin = { x: event.clientX, y: event.clientY };
     stage.setPointerCapture(event.pointerId);
     return;
@@ -561,7 +610,11 @@ stage.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
     if (!document.body.classList.contains('expanded')) return setExpanded(true);
-    return state.zoom > 1 ? stepBack() : lookCloser();
+    return state.zoom > 1 ? stepBack() : zoomAt(2);
+  }
+  if (['+', '=', '-', '_'].includes(event.key)) {
+    event.preventDefault();
+    return zoomAt(state.zoom * (event.key === '-' || event.key === '_' ? 1 / 1.25 : 1.25));
   }
   const delta = { ArrowLeft: [-.15, 0], ArrowRight: [.15, 0], ArrowUp: [0, .15], ArrowDown: [0, -.15] }[event.key];
   if (delta && canPan()) {
@@ -573,7 +626,7 @@ stage.addEventListener('keydown', (event) => {
   }
   const target = state.mode === 'tilt' ? tiltTarget : lightTarget;
   if (delta) { event.preventDefault(); target.add(new THREE.Vector2(...delta)).clampLength(0, 1); requestRender(); }
-  if (event.key === 'Home') { event.preventDefault(); pan.set(0, 0); target.copy(state.mode === 'tilt' ? new THREE.Vector2() : new THREE.Vector2(-.75, .55)); requestRender(); }
+  if (event.key === 'Home') { event.preventDefault(); recenterTarget = undefined; pan.set(0, 0); target.copy(state.mode === 'tilt' ? new THREE.Vector2() : new THREE.Vector2(-.75, .55)); requestRender(); }
 });
 
 try {
@@ -599,6 +652,7 @@ Object.defineProperty(window, '__gallery', { get: () => ({
   tiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltCurrent.length() * Math.tan(MAX_TILT))),
   targetTiltDegrees: THREE.MathUtils.radToDeg(Math.atan(tiltTarget.length() * Math.tan(MAX_TILT))),
   pan: [pan.x, pan.y], canPan: renderer ? canPan() : false, hasXray: Boolean(xrayTexture),
+  viewProjection: camera ? new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).toArray() : null,
   warmed: [...surfaceCache.keys()],
   preloaded: [...preloaded.keys()],
   textureSize: surfaceTexture ? [surfaceTexture.image.width, surfaceTexture.image.height] : null,

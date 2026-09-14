@@ -37,7 +37,9 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 [hidden] { display: none !important; }
 main { width: min(1120px, 94%); margin: 0 auto; padding: 30px 0 48px; }
 .artwork { margin: 0; }
-.stage { position: relative; height: clamp(350px, 70vh, 790px); overflow: hidden; touch-action: pan-y; cursor: pointer; }
+.stage { position: relative; height: clamp(350px, 70vh, 790px); overflow: hidden; touch-action: pan-y; cursor: default; }
+.stage.pan-mode { cursor: grab; }
+.stage.pan-mode:active { cursor: grabbing; }
 body.expanded { overflow: hidden; }
 body.expanded .stage { position: fixed; inset: 0; z-index: 1; height: auto; background: #f7f6f2; }
 .stage.tilt-mode, .stage.pan-mode { touch-action: none; }
