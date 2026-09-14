@@ -102,11 +102,17 @@ Browser tests cover relighting, the 4.5-degree tilt bound, original-image compar
 
 ## Sources
 
-The wall label includes the artist’s life dates (1853–1890), the painting’s year (1889), its place of creation (Saint-Rémy-de-Provence, France), and its exhibition location (The Met Fifth Avenue, Gallery 822). The Met collection page was checked on September 13, 2026; gallery placement may change.
+Five works, all public domain, all bundled locally. Each wall label carries the artist's dates, the year, the place of creation where it is documented, and the holding collection. Collection pages were checked on September 13, 2026; gallery placement may change.
 
-- Artwork: [The Metropolitan Museum of Art, object 436535](https://www.metmuseum.org/art/collection/search/436535), marked **Public Domain**. Purchase, The Annenberg Foundation Gift, 1993; accession 1993.132.
-- Original image: [DP-42549-001.jpg](https://images.metmuseum.org/CRDImages/ep/original/DP-42549-001.jpg), downloaded at 4000 × 3184 pixels. The file is retained in `public/art/wheat-field.jpg`.
-- Fonts: Libre Franklin, under the SIL Open Font License. License files are in `public/fonts/`.
+- **Wheat Field with Cypresses**, van Gogh, 1889 — [The Met, object 436535](https://www.metmuseum.org/art/collection/search/436535), Open Access. Purchase, The Annenberg Foundation Gift, 1993; accession 1993.132. Source image `DP-42549-001.jpg` at 4000 × 3184. The Met photographs this against a black backdrop, so the file here is cropped to the canvas at 3839 × 3015 and the backdrop is made transparent by a flood fill from the border, leaving the torn painted edge intact. Stored as `public/art/wheat-field.webp`; WebP because JPEG cannot carry transparency.
+- **X-radiograph of the same painting** — Met supplementary conservation image `LC-EP_1993_132_suppl_CH-004.jpg`, Open Access, 3208 × 2527 grayscale. Cropped to its plate border at 3093 × 2449 and resampled to 2048 × 1608 to match the surface map texel for texel. Stored as `public/art/wheat-field-xray.jpg`. It reads lead white, not geometry — see the X-ray note under Surface synthesis.
+- **The Starry Night**, van Gogh, 1889 — [MoMA, object 79802](https://www.moma.org/collection/works/79802). Image from the Google Art Project scan on Wikimedia Commons, 44,567 × 35,291, downsampled to 4000 × 3167.
+- **Roses**, van Gogh, 1890 — [The Met, object 436534](https://www.metmuseum.org/art/collection/search/436534), Open Access. Source image `DP346475.jpg` at 3167 × 4000.
+- **Rouen Cathedral, West Façade, Sunlight**, Monet, 1894 — [National Gallery of Art, object 46654](https://www.nga.gov/artworks/46654-rouen-cathedral-west-facade-sunlight). Image via Wikimedia Commons at 6030 × 9204, downsampled to 2620 × 4000.
+- **Taos Mountain Trail Home**, Cordelia Wilson, c. 1915–1920s — [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Cordelia_Wilson_-_Taos_Mountain_Trail_Home.jpg), private collection, Kansas City. 1092 × 916, the only size published; well below the 2048 the surface synthesis wants, which makes it the useful stress case for the relief.
+- Fonts: Libre Franklin, regular and bold, under the SIL Open Font License. The license file is in `public/fonts/`.
 - Renderer: [Three.js](https://threejs.org/), MIT license; exact dependencies are recorded in `package-lock.json`.
+
+The original downloads are not kept in the working tree. Every bundled file under `public/art/` is derived from the sources above by the crops and resamples described, and each is reproducible from its link.
 
 Useful reference for a future measured-surface comparison: [University of Verona RealRTI](https://github.com/Univr-RTI/RealRTI). Its canvas examples include calibrated multi-light images, rather than ready-to-use normal maps. No RealRTI data is bundled here.
