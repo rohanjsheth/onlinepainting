@@ -37,9 +37,12 @@ test('renders paint, relights it, limits head tilt, and preserves the original c
   await page.locator('#stage').scrollIntoViewIfNeeded();
   const movedArea = await page.locator('#stage').boundingBox();
   Object.assign(area, movedArea);
-  await page.mouse.move(area.x + area.width - 2, area.y + 2);
+  await page.mouse.move(area.x + area.width * .77, area.y + area.height * .25);
   await expect.poll(() => page.evaluate(() => window.__gallery.tiltDegrees)).toBeGreaterThan(4.0);
   expect(await page.evaluate(() => window.__gallery.tiltDegrees)).toBeLessThanOrEqual(4.5001);
+  await page.mouse.move(area.x + area.width - 2, area.y + 2);
+  await expect.poll(() => page.evaluate(() => window.__gallery.targetTiltDegrees)).toBe(0);
+  await expect.poll(() => page.evaluate(() => window.__gallery.tiltDegrees)).toBeLessThan(.1);
   await page.locator('#stage').focus();
   for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowRight');
   expect(await page.evaluate(() => window.__gallery.targetTiltDegrees)).toBeLessThanOrEqual(4.5001);
@@ -90,6 +93,13 @@ test('renders paint, relights it, limits head tilt, and preserves the original c
 test('scroll zoom anchors zoom-in and recenters zoom-out, including tilted views and zoom limits', async ({ page }) => {
   await loaded(page);
   const area = await page.locator('#stage').boundingBox();
+  await page.evaluate(({ x, y }) => {
+    const stage = document.querySelector('#stage');
+    const position = { clientX: x + 2, clientY: y + 2, bubbles: true, cancelable: true };
+    stage.dispatchEvent(new WheelEvent('wheel', { ...position, deltaY: -300 }));
+    stage.dispatchEvent(new MouseEvent('dblclick', position));
+  }, area);
+  expect(await page.evaluate(() => window.__gallery.zoom)).toBe(1);
   const x = Math.round(area.x + area.width * .68), y = Math.round(area.y + area.height * .3);
   await page.mouse.move(x, y);
   await expect.poll(() => page.evaluate(() => window.__gallery.tiltDegrees)).toBeGreaterThan(1);

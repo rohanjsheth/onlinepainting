@@ -152,10 +152,12 @@ function zoomAt(zoom, event, recenter = 1) {
     (event.clientX - rect.left) / rect.width * 2 - 1,
     1 - (event.clientY - rect.top) / rect.height * 2,
   ) : new THREE.Vector2();
-  // Finish any pending head movement at the displayed angle so the anchor cannot drift.
-  tiltTarget.copy(tiltCurrent);
   updateCamera();
   const before = pointOnPainting(ndc);
+  // Hit-test the actual tilted painting, excluding the wall and shadow.
+  if (event && nextZoom > state.zoom && (!before || Math.abs(before.x) > 1 || Math.abs(before.y) > 1 / aspect)) return;
+  // Finish any pending head movement at the displayed angle so the anchor cannot drift.
+  tiltTarget.copy(tiltCurrent);
   const previousZoom = state.zoom;
   const previousCenter = (recenterTarget || pan).clone();
   state.zoom = nextZoom;
@@ -541,7 +543,17 @@ function movePointer(event) {
   const x = THREE.MathUtils.clamp((event.clientX - rect.left) / rect.width * 2 - 1, -1, 1);
   const y = THREE.MathUtils.clamp(1 - (event.clientY - rect.top) / rect.height * 2, -1, 1);
   if (state.mode === 'tilt') {
-    tiltTarget.set(x, y).clampLength(0, 1);
+    // Use the untilted painting bounds so the active region doesn't move as it tilts.
+    const view = viewHalfSize();
+    const pixelsPerUnit = rect.height / (2 * view.y);
+    const halfWidth = pixelsPerUnit;
+    const halfHeight = pixelsPerUnit / aspect;
+    const dx = event.clientX - (rect.left + rect.width / 2 - pan.x * pixelsPerUnit);
+    const dy = event.clientY - (rect.top + rect.height / 2 + pan.y * pixelsPerUnit);
+    const distance = Math.hypot(Math.max(0, Math.abs(dx) - halfWidth), Math.max(0, Math.abs(dy) - halfHeight));
+    // Rounded margin: full interaction just outside the frame, fading to neutral at 120px.
+    const influence = 1 - THREE.MathUtils.smoothstep(distance, 24, 120);
+    tiltTarget.set(dx / halfWidth, -dy / halfHeight).clampLength(0, 1).multiplyScalar(influence);
   } else if (x * x + y * y > .015) {
     lightTarget.set(x, y);
   }
